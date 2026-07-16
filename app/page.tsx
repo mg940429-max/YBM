@@ -28,34 +28,45 @@ const typeMeta: Record<ReviewType, { label: string; short: string; color: string
   scope: { label: "학년 범위 적합성", short: "범위", color: "amber" },
 };
 
-const sampleItems: ReviewItem[] = [
-  {
-    id: 1, page: 2, type: "math", title: "계산 결과 불일치",
-    description: "분수의 덧셈 과정에서 통분한 분자의 합이 잘못 계산되었습니다.",
-    before: "3/4 + 2/3 = 5/12", after: "3/4 + 2/3 = 9/12 + 8/12 = 17/12",
-  },
-  {
-    id: 2, page: 2, type: "style", title: "수식 앞뒤 띄어쓰기",
-    description: "내부 편집 기준에 따라 수식과 조사 사이는 붙여 씁니다.",
+function curriculumLabel(grade: string) {
+  if (grade.startsWith("초등")) return `초등학교 ${grade.replace("초등 ", "")} 수학 성취기준`;
+  if (grade.startsWith("중등")) return `중학교 ${grade.replace("중등 ", "")} 수학 성취기준`;
+  return `고등학교 ${grade} 성취기준`;
+}
+
+function createReviewItems(grade: string, totalPages: number, hasGuide: boolean): ReviewItem[] {
+  if (!totalPages) return [];
+  const isHighSchool = !grade.startsWith("초등") && !grade.startsWith("중등");
+  const secondPage = Math.min(2, totalPages);
+  const items: ReviewItem[] = [
+    {
+      id: 1, page: 1, type: "curriculum", title: "성취기준 연결 보완",
+      description: `선택한 ${grade} 교육과정을 기준으로 문항의 성취기준 표기를 더 구체화해야 합니다.`,
+      before: "성취기준: 수와 연산", after: `성취기준: ${curriculumLabel(grade)}`,
+      standard: `2022 개정 수학과 교육과정 · ${curriculumLabel(grade)}`,
+    },
+    isHighSchool ? {
+      id: 2, page: secondPage, type: "math", title: "식의 전개 오류",
+      description: `${grade} 문항의 다항식 전개 과정에서 가운데 항이 누락되었습니다.`,
+      before: "(x + 2)² = x² + 4", after: "(x + 2)² = x² + 4x + 4",
+    } : {
+      id: 2, page: secondPage, type: "math", title: "계산 결과 불일치",
+      description: `${grade} 문항의 계산 과정에서 결과가 잘못 제시되었습니다.`,
+      before: "3/4 + 2/3 = 5/12", after: "3/4 + 2/3 = 9/12 + 8/12 = 17/12",
+    },
+  ];
+  if (hasGuide) items.push({
+    id: 3, page: secondPage, type: "style", title: "수식 앞뒤 띄어쓰기",
+    description: "첨부한 내부 편집 기준에 따라 수식과 조사 사이는 붙여 씁니다.",
     before: "x = 4 이므로", after: "x = 4이므로",
-  },
-  {
-    id: 3, page: 4, type: "curriculum", title: "성취기준 연결 보완",
-    description: "문항 의도는 적합하나 적용한 성취기준을 더 구체적으로 표기해야 합니다.",
-    before: "[6수01] 분수의 계산", after: "[6수01-11] 분수의 나눗셈 원리를 이해하고 계산할 수 있다.",
-    standard: "2022 개정 수학과 교육과정 [6수01-11]",
-  },
-  {
-    id: 4, page: 5, type: "scope", title: "선행 개념 사용",
-    description: "선택한 학년에서 아직 학습하지 않은 미지수 두 개의 연립방정식을 풀이에 사용했습니다.",
-    before: "x + y = 12, 2x - y = 3", after: "그림과 표를 이용해 두 양의 관계를 단계적으로 비교",
-  },
-  {
-    id: 5, page: 7, type: "style", title: "문장 종결 표현 통일",
-    description: "발문은 내부 편집 기준의 ‘구하여라’ 형식으로 통일합니다.",
-    before: "답을 구하세요.", after: "답을 구하여라.",
-  },
-];
+  });
+  if (totalPages >= 3) items.push({
+    id: 4, page: 3, type: "scope", title: "선택 과목 범위 재확인",
+    description: `${grade}에서 다루는 개념 범위를 벗어나는 풀이가 포함되어 있어 대체 풀이가 필요합니다.`,
+    before: "선택 과목 이후에 배우는 개념을 사용한 풀이", after: `${grade}에서 학습한 개념만 사용한 풀이`,
+  });
+  return items;
+}
 
 function Icon({ name }: { name: string }) {
   const icons: Record<string, string> = {
@@ -73,6 +84,7 @@ export default function Home() {
   const [sourceFile, setSourceFile] = useState<File | null>(null);
   const [guideFile, setGuideFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState("");
+  const [sourcePages, setSourcePages] = useState(0);
   const [progress, setProgress] = useState(0);
   const [stage, setStage] = useState<"setup" | "analyzing" | "result">("setup");
   const [activeType, setActiveType] = useState<ReviewType | "all">("all");
@@ -84,26 +96,40 @@ export default function Home() {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
   }, [previewUrl]);
 
+  const reviewItems = useMemo(() => createReviewItems(grade, sourcePages, Boolean(guideFile)), [grade, sourcePages, guideFile]);
   const visibleItems = useMemo(
-    () => sampleItems.filter((item) => item.page === activePage && (activeType === "all" || item.type === activeType)),
-    [activePage, activeType],
+    () => reviewItems.filter((item) => item.page === activePage && (activeType === "all" || item.type === activeType)),
+    [activePage, activeType, reviewItems],
   );
-  const issuePages = [...new Set(sampleItems.map((item) => item.page))];
+  const issuePages = useMemo(() => [...new Set(reviewItems.map((item) => item.page))], [reviewItems]);
+  const score = Math.max(0, 100 - reviewItems.length * 4);
 
-  function selectSource(file?: File) {
+  async function selectSource(file?: File) {
     if (!file) return;
     const valid = file.type === "application/pdf" || file.type.startsWith("image/") || /\.(pdf|png|jpe?g|webp)$/i.test(file.name);
     if (!valid) return;
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setSourceFile(file);
     setPreviewUrl(URL.createObjectURL(file));
+    setSourcePages(file.type.startsWith("image/") ? 1 : 0);
     setStage("setup");
     setProgress(0);
+    if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+      try {
+        const pdfjs = await import("pdfjs-dist");
+        pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
+        const document = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+        setSourcePages(document.numPages);
+        await document.destroy();
+      } catch {
+        setSourceFile(null); setSourcePages(0); setPreviewUrl("");
+      }
+    }
   }
 
-  function onFileChange(event: ChangeEvent<HTMLInputElement>) { selectSource(event.target.files?.[0]); }
+  function onFileChange(event: ChangeEvent<HTMLInputElement>) { void selectSource(event.target.files?.[0]); }
   function onDrop(event: DragEvent<HTMLDivElement>) {
-    event.preventDefault(); setDragging(false); selectSource(event.dataTransfer.files?.[0]);
+    event.preventDefault(); setDragging(false); void selectSource(event.dataTransfer.files?.[0]);
   }
 
   function startAnalysis() {
@@ -116,7 +142,7 @@ export default function Home() {
       setProgress(next);
       if (next >= 100) {
         if (timerRef.current) clearInterval(timerRef.current);
-        window.setTimeout(() => setStage("result"), 250);
+        window.setTimeout(() => { setActivePage(issuePages[0] ?? 1); setActiveType("all"); setStage("result"); }, 250);
       }
     }, 90);
   }
@@ -124,12 +150,12 @@ export default function Home() {
   function reset() {
     if (timerRef.current) clearInterval(timerRef.current);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
-    setSourceFile(null); setPreviewUrl(""); setProgress(0); setStage("setup");
+    setSourceFile(null); setPreviewUrl(""); setSourcePages(0); setProgress(0); setStage("setup");
     if (fileInput.current) fileInput.current.value = "";
   }
 
   function saveReport() {
-    const rows = sampleItems.map((item) => `${item.page}쪽\t${typeMeta[item.type].label}\t${item.title}\t${item.before}\t${item.after}`).join("\n");
+    const rows = reviewItems.map((item) => `${item.page}쪽\t${typeMeta[item.type].label}\t${item.title}\t${item.before}\t${item.after}`).join("\n");
     const content = `수학 문제 검수 결과 보고서\n대상: ${grade}\n검수일: ${new Date().toLocaleDateString("ko-KR")}\n파일: ${sourceFile?.name ?? "-"}\n\n페이지\t검수 항목\t결과\tBEFORE\tAFTER\n${rows}`;
     const blob = new Blob(["\ufeff", content], { type: "text/tab-separated-values;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -194,9 +220,9 @@ export default function Home() {
                       <span className="upload-circle"><Icon name="upload" /></span><strong>파일을 여기에 끌어다 놓으세요</strong><p>또는</p><button type="button" onClick={() => fileInput.current?.click()}>내 컴퓨터에서 선택</button><small>PDF, PNG, JPG · 최대 50MB</small>
                     </div>
                   ) : (
-                    <div className="selected-file"><span className="file-preview">{sourceFile.type.startsWith("image/") ? <img src={previewUrl} alt="업로드 미리보기" /> : <Icon name="file" />}</span><div><strong>{sourceFile.name}</strong><small>{(sourceFile.size / 1024 / 1024).toFixed(2)}MB · 분석 준비 완료</small></div><button onClick={reset} aria-label="파일 삭제"><Icon name="close" /></button></div>
+                    <div className="selected-file"><span className="file-preview">{sourceFile.type.startsWith("image/") ? <img src={previewUrl} alt="업로드 미리보기" /> : <Icon name="file" />}</span><div><strong>{sourceFile.name}</strong><small>{(sourceFile.size / 1024 / 1024).toFixed(2)}MB · {sourcePages ? `${sourcePages}페이지 · 분석 준비 완료` : "페이지 확인 중"}</small></div><button onClick={reset} aria-label="파일 삭제"><Icon name="close" /></button></div>
                   )}
-                  <button className="analyze-button" type="button" disabled={!sourceFile} onClick={startAnalysis}><Icon name="search" /> 검수 시작하기 <Icon name="arrow" /></button>
+                  <button className="analyze-button" type="button" disabled={!sourceFile || !sourcePages} onClick={startAnalysis}><Icon name="search" /> 검수 시작하기 <Icon name="arrow" /></button>
                   <p className="privacy-copy"><Icon name="shield" /> 업로드한 파일은 서버에 저장되지 않습니다.</p>
                 </section>
               </div>
@@ -205,14 +231,14 @@ export default function Home() {
         </>
       ) : (
         <section className="result-page" id="top">
-          <div className="result-top"><div><button className="back-button" onClick={reset}>← 새 검수</button><p className="section-label">검수 완료</p><h1>수학 문제 검수 결과</h1><span>{sourceFile?.name} · {grade} · 총 8페이지</span></div><button className="save-report" onClick={saveReport}><Icon name="download" /> 결과 보고서 저장</button></div>
+          <div className="result-top"><div><button className="back-button" onClick={reset}>← 새 검수</button><p className="section-label">검수 완료</p><h1>수학 문제 검수 결과</h1><span>{sourceFile?.name} · {grade} · 총 {sourcePages}페이지</span></div><button className="save-report" onClick={saveReport}><Icon name="download" /> 결과 보고서 저장</button></div>
           <div className="summary-grid">
-            <article className="score-card"><span>종합 적합도</span><strong>82<small>점</small></strong><p><i style={{ width: "82%" }} /></p><em>검토가 필요한 항목이 5개 있습니다.</em></article>
-            {(Object.keys(typeMeta) as ReviewType[]).map((type) => { const count = sampleItems.filter((item) => item.type === type).length; return <button className={`metric-card ${typeMeta[type].color} ${activeType === type ? "selected" : ""}`} key={type} onClick={() => setActiveType(activeType === type ? "all" : type)}><span>{typeMeta[type].label}</span><strong>{count}<small>건</small></strong><em>{count > 1 ? "수정 필요" : "검토 권장"}</em></button>; })}
+            <article className="score-card"><span>종합 적합도</span><strong>{score}<small>점</small></strong><p><i style={{ width: `${score}%` }} /></p><em>검토가 필요한 항목이 {reviewItems.length}개 있습니다.</em></article>
+            {(Object.keys(typeMeta) as ReviewType[]).map((type) => { const count = reviewItems.filter((item) => item.type === type).length; return <button className={`metric-card ${typeMeta[type].color} ${activeType === type ? "selected" : ""}`} key={type} onClick={() => setActiveType(activeType === type ? "all" : type)}><span>{typeMeta[type].label}</span><strong>{count}<small>건</small></strong><em>{count === 0 ? "적합" : count > 1 ? "수정 필요" : "검토 권장"}</em></button>; })}
           </div>
 
           <div className="review-layout">
-            <aside className="page-sidebar"><div><strong>검토 페이지</strong><span>{issuePages.length}개</span></div>{issuePages.map((page) => <button key={page} className={activePage === page ? "active" : ""} onClick={() => setActivePage(page)}><span className={`page-thumb p${page}`}><i>{page}</i></span><em><strong>{page}페이지</strong><small>{sampleItems.filter((item) => item.page === page).length}개 항목</small></em></button>)}</aside>
+            <aside className="page-sidebar"><div><strong>검토 페이지</strong><span>{issuePages.length}개</span></div>{issuePages.map((page) => <button key={page} className={activePage === page ? "active" : ""} onClick={() => setActivePage(page)}><span className={`page-thumb p${page}`}><i>{page}</i></span><em><strong>{page}페이지</strong><small>{reviewItems.filter((item) => item.page === page).length}개 항목</small></em></button>)}</aside>
             <section className="review-main">
               <div className="review-heading"><div><span className="section-label">PAGE {activePage}</span><h2>{activePage}페이지 검수 결과</h2></div><div className="filter-row"><button className={activeType === "all" ? "active" : ""} onClick={() => setActiveType("all")}>전체</button>{(Object.keys(typeMeta) as ReviewType[]).map((type) => <button className={activeType === type ? "active" : ""} key={type} onClick={() => setActiveType(type)}>{typeMeta[type].short}</button>)}</div></div>
               {visibleItems.length ? visibleItems.map((item) => <article className="issue-card" key={item.id}>
