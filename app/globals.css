@@ -154,6 +154,7 @@ select:focus { border-color:var(--blue); box-shadow:0 0 0 3px #e8f0ff; }
 .compare>div:last-child { background:#f2f8ff; border-color:#d7e6fb; }
 .compare span { color:#d04e55; font-size:8px; font-weight:900; letter-spacing:.08em; }
 .compare>div:last-child span { color:#3971cb; }
+.latex-compare code { margin-top:10px; display:block; overflow-wrap:anywhere; color:#243958; font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace; font-size:11px; line-height:1.55; white-space:pre-wrap; }
 .compare p { margin:8px 0 0; color:#4d5768; font-size:10px; line-height:1.5; }
 .empty-filter { min-height:230px; display:flex; flex-direction:column; align-items:center; justify-content:center; color:#778499; }
 .empty-filter>span { width:38px; height:38px; display:grid; place-items:center; border-radius:50%; background:#e9f5ef; color:#398067; }

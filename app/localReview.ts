@@ -9,6 +9,7 @@ export type ReviewItem = {
   before: string;
   after: string;
   standard?: string;
+  format?: "text" | "latex";
 };
 
 type ProgressHandler = (value: number) => void;
@@ -31,7 +32,32 @@ const courseExclusions: Record<string, string[]> = {
 };
 
 function normalizeText(value: string) {
-  return value.replace(/\u0000/g, "").replace(/[\t\f\v]+/g, " ").replace(/\r/g, "").replace(/ {3,}/g, "  ").trim();
+  return value.replace(/\u0000/g, "").replace(/[\t\f\v ]+/g, " ").replace(/\r/g, "").trim();
+}
+
+function isGarbledPdfText(value: string) {
+  const compact = value.replace(/\s/g, "");
+  if (!compact) return false;
+  const replacementCharacters = (compact.match(/[�ðþÃÂ¤]/g) ?? []).length;
+  const extendedLatin = (compact.match(/[\u00c0-\u02af]/g) ?? []).filter((character) => !/[×÷]/.test(character)).length;
+  return replacementCharacters >= 2 || extendedLatin / compact.length > 0.08;
+}
+
+function toLatexCode(expression: string) {
+  const latex = expression
+    .replace(/−/g, "-")
+    .replace(/([0-9.]+)\s*[xX×*]\s*([0-9.]+)/g, "$1 \\times $2")
+    .replace(/([0-9.]+)\s*[÷/]\s*([0-9.]+)/g, "\\frac{$1}{$2}")
+    .replace(/≤/g, "\\le ")
+    .replace(/≥/g, "\\ge ")
+    .replace(/≠/g, "\\ne ")
+    .replace(/√\s*([0-9a-zA-Z]+)/g, "\\sqrt{$1}")
+    .replace(/π/g, "\\pi ")
+    .replace(/²/g, "^{2}")
+    .replace(/³/g, "^{3}")
+    .replace(/\s+/g, " ")
+    .trim();
+  return `$${latex}$`;
 }
 
 async function createOcr(onProgress: ProgressHandler) {
@@ -56,7 +82,7 @@ async function extractPdf(file: File, onProgress: ProgressHandler, allowOcr: boo
       const content = await page.getTextContent();
       let text = normalizeText(content.items.map((item) => ("str" in item ? item.str : "")).join(" "));
 
-      if (allowOcr && text.replace(/\s/g, "").length < 25) {
+      if (allowOcr && (text.replace(/\s/g, "").length < 25 || isGarbledPdfText(text))) {
         worker ??= await createOcr(onProgress);
         const base = page.getViewport({ scale: 1 });
         const scale = Math.min(2.2, Math.max(1.45, 1700 / Math.max(base.width, 1)));
@@ -68,7 +94,8 @@ async function extractPdf(file: File, onProgress: ProgressHandler, allowOcr: boo
           canvas.height = Math.ceil(viewport.height);
           await page.render({ canvas, canvasContext: context, viewport }).promise;
           const result = await worker.recognize(canvas);
-          text = normalizeText(result.data.text);
+          const ocrText = normalizeText(result.data.text);
+          text = isGarbledPdfText(ocrText) ? "" : ocrText;
         }
       }
 
@@ -151,13 +178,12 @@ function inspectPages(pages: string[], grade: string, guide: string) {
       const expected = operator === "+" ? left + right : operator === "-" ? left - right : /[×xX*]/.test(operator) ? left * right : right === 0 ? Number.NaN : left / right;
       if (!Number.isFinite(expected) || Math.abs(expected - shown) > 1e-9) {
         const answer = Number.isFinite(expected) ? String(Number(expected.toFixed(8))) : "0으로 나눌 수 없음";
-        add({ page, type: "math", title: "계산식 결과 확인 필요", description: "문서에서 읽은 사칙연산 식의 좌변과 우변이 일치하지 않습니다. OCR 인식 결과도 함께 확인하세요.", before: match[0], after: Number.isFinite(expected) ? `${match[1]} ${operator} ${match[3]} = ${answer}` : `${match[1]} ${operator} ${match[3]}은 계산할 수 없음` });
+        add({ page, type: "math", title: "계산식 결과 확인 필요", description: "문서에서 읽은 사칙연산 식의 좌변과 우변이 일치하지 않습니다. OCR 인식 결과도 함께 확인하세요. 수식은 LaTeX 코드로 표시했습니다.", before: toLatexCode(match[0]), after: Number.isFinite(expected) ? toLatexCode(`${match[1]} ${operator} ${match[3]} = ${answer}`) : `$\\text{${match[1]} ${operator} ${match[3]}은 정의되지 않음}$`, format: "latex" });
       }
     }
 
     const styleRules = [
       { regex: /되어진/, after: "된", title: "불필요한 이중 피동 표현" },
-      { regex: /[ \t]{2,}/, after: " ", title: "연속 공백 정리" },
       { regex: /([가-힣])\s+([,.])/, after: "$1$2", title: "문장부호 앞 공백 정리" },
       { regex: /([!?])\1+/, after: "$1", title: "문장부호 중복 사용" },
     ];
