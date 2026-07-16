@@ -37,6 +37,10 @@ function extractOutputText(payload: Record<string, unknown>) {
   return "";
 }
 
+export async function GET() {
+  return NextResponse.json({ configured: Boolean(process.env.OPENAI_API_KEY) });
+}
+
 export async function POST(request: Request) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return NextResponse.json({ error: "AI 분석 API가 아직 설정되지 않았습니다. 관리자에게 OPENAI_API_KEY 설정을 요청해 주세요." }, { status: 503 });

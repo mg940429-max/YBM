@@ -54,11 +54,16 @@ export default function Home() {
   const [score, setScore] = useState(100);
   const [analysisSummary, setAnalysisSummary] = useState("");
   const [analysisError, setAnalysisError] = useState("");
+  const [aiConfigured, setAiConfigured] = useState<boolean | null>(null);
 
   useEffect(() => () => {
     if (timerRef.current) clearInterval(timerRef.current);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
   }, [previewUrl]);
+
+  useEffect(() => {
+    void fetch("/api/review").then((response) => response.json()).then((payload: { configured?: boolean }) => setAiConfigured(Boolean(payload.configured))).catch(() => setAiConfigured(false));
+  }, []);
 
   const visibleItems = useMemo(
     () => reviewItems.filter((item) => item.page === activePage && (activeType === "all" || item.type === activeType)),
@@ -195,8 +200,9 @@ export default function Home() {
                   ) : (
                     <div className="selected-file"><span className="file-preview">{sourceFile.type.startsWith("image/") ? <img src={previewUrl} alt="업로드 미리보기" /> : <Icon name="file" />}</span><div><strong>{sourceFile.name}</strong><small>{(sourceFile.size / 1024 / 1024).toFixed(2)}MB · {sourcePages ? `${sourcePages}페이지 · 분석 준비 완료` : "페이지 확인 중"}</small></div><button onClick={reset} aria-label="파일 삭제"><Icon name="close" /></button></div>
                   )}
-                  <button className="analyze-button" type="button" disabled={!sourceFile || !sourcePages} onClick={startAnalysis}><Icon name="search" /> 검수 시작하기 <Icon name="arrow" /></button>
+                  <button className="analyze-button" type="button" disabled={!sourceFile || !sourcePages || aiConfigured !== true} onClick={startAnalysis}><Icon name="search" /> 검수 시작하기 <Icon name="arrow" /></button>
                   {analysisError && <p className="error-banner" role="alert">{analysisError}</p>}
+                  {aiConfigured === false && <p className="error-banner" role="status">실제 AI 검수를 사용하려면 배포 환경에 OPENAI_API_KEY를 설정해 주세요.</p>}
                   <p className="privacy-copy"><Icon name="shield" /> 검수를 위해 파일이 OpenAI API로 암호화 전송됩니다.</p>
                 </section>
               </div>
