@@ -18,9 +18,10 @@ test("수학 문제 검수 앱의 초기 화면을 렌더링한다", async () =>
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
   const html = await response.text();
   assert.match(html, /<html[^>]*lang="ko"/i);
-  assert.match(html, /<title>수학검수 AI/);
+  assert.match(html, /<title>수학도구 AI/);
   assert.match(html, /수학 문제 검수/);
   assert.match(html, /2022 개정 교육과정/);
   assert.match(html, /검수 시작하기/);
+  assert.match(html, /PDF 나누기/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/);
 });

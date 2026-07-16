@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from "react";
+import PdfSplitter from "./PdfSplitter";
 
 type ReviewType = "curriculum" | "style" | "math" | "scope";
 type ReviewItem = {
@@ -67,6 +68,7 @@ export default function Home() {
   const fileInput = useRef<HTMLInputElement>(null);
   const guideInput = useRef<HTMLInputElement>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [tool, setTool] = useState<"review" | "split">("review");
   const [grade, setGrade] = useState("초등 6학년");
   const [sourceFile, setSourceFile] = useState<File | null>(null);
   const [guideFile, setGuideFile] = useState<File | null>(null);
@@ -138,11 +140,11 @@ export default function Home() {
   return (
     <main>
       <header className="topbar">
-        <a className="brand" href="#top"><span className="brand-mark"><Icon name="check" /></span><span>수학검수</span><i>AI</i></a>
-        <nav><a href="#workflow">검수하기</a><a href="https://ncic.re.kr/" target="_blank" rel="noreferrer">교육과정 자료</a><button type="button" className="help-button">도움말</button></nav>
+        <button className="brand brand-button" onClick={() => setTool("review")}><span className="brand-mark"><Icon name="check" /></span><span>수학도구</span><i>AI</i></button>
+        <nav className="tool-nav"><button className={tool === "review" ? "active" : ""} onClick={() => setTool("review")}>수학 문제 검수</button><button className={tool === "split" ? "active" : ""} onClick={() => setTool("split")}>PDF 나누기</button><a href="https://ncic.re.kr/" target="_blank" rel="noreferrer">교육과정 자료</a></nav>
       </header>
 
-      {stage !== "result" ? (
+      {tool === "split" ? <PdfSplitter /> : stage !== "result" ? (
         <>
           <section className="hero" id="top">
             <div className="hero-badge"><Icon name="shield" /> 2022 개정 교육과정 기반</div>
@@ -222,7 +224,7 @@ export default function Home() {
           </div>
         </section>
       )}
-      <footer><div className="brand"><span className="brand-mark"><Icon name="check" /></span><span>수학검수</span><i>AI</i></div><p>교재 편집자의 판단을 돕는 검수 보조 도구입니다. 최종 반영 전 전문가의 확인을 권장합니다.</p></footer>
+      <footer><div className="brand"><span className="brand-mark"><Icon name="check" /></span><span>수학도구</span><i>AI</i></div><p>수학 문제 검수와 PDF 분할을 한곳에서 안전하고 편리하게 처리하세요.</p></footer>
     </main>
   );
 }

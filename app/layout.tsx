@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import "./globals.css";
 
-const title = "수학검수 AI | 수학 문제 교정·교열";
-const description = "2022 개정 수학과 교육과정과 내부 편집 기준에 따라 수학 문제를 검수하고 수정안을 제안합니다.";
+const title = "수학도구 AI | 수학 문제 검수와 PDF 나누기";
+const description = "2022 개정 교육과정 기반 수학 문제 검수와 안전한 브라우저 PDF 분할을 한곳에서 이용하세요.";
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
@@ -14,8 +14,8 @@ export async function generateMetadata(): Promise<Metadata> {
     title,
     description,
     icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
-    openGraph: { title, description, type: "website", images: [{ url: `${origin}/og.png`, width: 1736, height: 909, alt: "수학검수 AI" }] },
-    twitter: { card: "summary_large_image", title, description, images: [`${origin}/og.png`] },
+    openGraph: { title, description, type: "website", images: [{ url: `${origin}/og-suite.png`, width: 1736, height: 909, alt: "수학도구 AI" }] },
+    twitter: { card: "summary_large_image", title, description, images: [`${origin}/og-suite.png`] },
   };
 }
 
