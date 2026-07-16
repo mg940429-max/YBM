@@ -25,3 +25,22 @@ test("수학 문제 검수 앱의 초기 화면을 렌더링한다", async () =>
   assert.match(html, /PDF 나누기/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/);
 });
+
+test("API 키가 없으면 AI 검수 설정 안내를 반환한다", async () => {
+  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
+  workerUrl.searchParams.set("api-test", `${process.pid}-${Date.now()}`);
+  const { default: worker } = await import(workerUrl.href);
+  const previous = process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+  try {
+    const response = await worker.fetch(
+      new Request("http://localhost/api/review", { method: "POST", body: new FormData() }),
+      { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } },
+      { waitUntil() {}, passThroughOnException() {} },
+    );
+    assert.equal(response.status, 503);
+    assert.match(await response.text(), /OPENAI_API_KEY/);
+  } finally {
+    if (previous) process.env.OPENAI_API_KEY = previous;
+  }
+});

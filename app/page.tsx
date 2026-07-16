@@ -28,46 +28,6 @@ const typeMeta: Record<ReviewType, { label: string; short: string; color: string
   scope: { label: "학년 범위 적합성", short: "범위", color: "amber" },
 };
 
-function curriculumLabel(grade: string) {
-  if (grade.startsWith("초등")) return `초등학교 ${grade.replace("초등 ", "")} 수학 성취기준`;
-  if (grade.startsWith("중등")) return `중학교 ${grade.replace("중등 ", "")} 수학 성취기준`;
-  return `고등학교 ${grade} 성취기준`;
-}
-
-function createReviewItems(grade: string, totalPages: number, hasGuide: boolean): ReviewItem[] {
-  if (!totalPages) return [];
-  const isHighSchool = !grade.startsWith("초등") && !grade.startsWith("중등");
-  const secondPage = Math.min(2, totalPages);
-  const items: ReviewItem[] = [
-    {
-      id: 1, page: 1, type: "curriculum", title: "성취기준 연결 보완",
-      description: `선택한 ${grade} 교육과정을 기준으로 문항의 성취기준 표기를 더 구체화해야 합니다.`,
-      before: "성취기준: 수와 연산", after: `성취기준: ${curriculumLabel(grade)}`,
-      standard: `2022 개정 수학과 교육과정 · ${curriculumLabel(grade)}`,
-    },
-    isHighSchool ? {
-      id: 2, page: secondPage, type: "math", title: "식의 전개 오류",
-      description: `${grade} 문항의 다항식 전개 과정에서 가운데 항이 누락되었습니다.`,
-      before: "(x + 2)² = x² + 4", after: "(x + 2)² = x² + 4x + 4",
-    } : {
-      id: 2, page: secondPage, type: "math", title: "계산 결과 불일치",
-      description: `${grade} 문항의 계산 과정에서 결과가 잘못 제시되었습니다.`,
-      before: "3/4 + 2/3 = 5/12", after: "3/4 + 2/3 = 9/12 + 8/12 = 17/12",
-    },
-  ];
-  if (hasGuide) items.push({
-    id: 3, page: secondPage, type: "style", title: "수식 앞뒤 띄어쓰기",
-    description: "첨부한 내부 편집 기준에 따라 수식과 조사 사이는 붙여 씁니다.",
-    before: "x = 4 이므로", after: "x = 4이므로",
-  });
-  if (totalPages >= 3) items.push({
-    id: 4, page: 3, type: "scope", title: "선택 과목 범위 재확인",
-    description: `${grade}에서 다루는 개념 범위를 벗어나는 풀이가 포함되어 있어 대체 풀이가 필요합니다.`,
-    before: "선택 과목 이후에 배우는 개념을 사용한 풀이", after: `${grade}에서 학습한 개념만 사용한 풀이`,
-  });
-  return items;
-}
-
 function Icon({ name }: { name: string }) {
   const icons: Record<string, string> = {
     upload: "↑", file: "▤", check: "✓", report: "▦", close: "×", download: "↓", search: "⌕", arrow: "→", shield: "◆",
@@ -90,19 +50,21 @@ export default function Home() {
   const [activeType, setActiveType] = useState<ReviewType | "all">("all");
   const [activePage, setActivePage] = useState(2);
   const [dragging, setDragging] = useState(false);
+  const [reviewItems, setReviewItems] = useState<ReviewItem[]>([]);
+  const [score, setScore] = useState(100);
+  const [analysisSummary, setAnalysisSummary] = useState("");
+  const [analysisError, setAnalysisError] = useState("");
 
   useEffect(() => () => {
     if (timerRef.current) clearInterval(timerRef.current);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
   }, [previewUrl]);
 
-  const reviewItems = useMemo(() => createReviewItems(grade, sourcePages, Boolean(guideFile)), [grade, sourcePages, guideFile]);
   const visibleItems = useMemo(
     () => reviewItems.filter((item) => item.page === activePage && (activeType === "all" || item.type === activeType)),
     [activePage, activeType, reviewItems],
   );
   const issuePages = useMemo(() => [...new Set(reviewItems.map((item) => item.page))], [reviewItems]);
-  const score = Math.max(0, 100 - reviewItems.length * 4);
 
   async function selectSource(file?: File) {
     if (!file) return;
@@ -114,6 +76,7 @@ export default function Home() {
     setSourcePages(file.type.startsWith("image/") ? 1 : 0);
     setStage("setup");
     setProgress(0);
+    setReviewItems([]); setAnalysisError(""); setAnalysisSummary("");
     if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
       try {
         const pdfjs = await import("pdfjs-dist");
@@ -132,25 +95,35 @@ export default function Home() {
     event.preventDefault(); setDragging(false); void selectSource(event.dataTransfer.files?.[0]);
   }
 
-  function startAnalysis() {
-    if (!sourceFile) return;
-    setStage("analyzing"); setProgress(3);
-    const started = Date.now();
+  async function startAnalysis() {
+    if (!sourceFile || !sourcePages) return;
+    setStage("analyzing"); setProgress(5); setAnalysisError("");
     timerRef.current = setInterval(() => {
-      const elapsed = Date.now() - started;
-      const next = Math.min(100, Math.round(4 + elapsed / 35));
-      setProgress(next);
-      if (next >= 100) {
-        if (timerRef.current) clearInterval(timerRef.current);
-        window.setTimeout(() => { setActivePage(issuePages[0] ?? 1); setActiveType("all"); setStage("result"); }, 250);
-      }
-    }, 90);
+      setProgress((current) => Math.min(88, current + (current < 45 ? 3 : 1)));
+    }, 450);
+    try {
+      const form = new FormData();
+      form.append("file", sourceFile); form.append("grade", grade); form.append("totalPages", String(sourcePages));
+      if (guideFile) form.append("guide", guideFile);
+      const response = await fetch("/api/review", { method: "POST", body: form });
+      const payload = await response.json() as { error?: string; score?: number; summary?: string; items?: ReviewItem[] };
+      if (!response.ok) throw new Error(payload.error || "AI 분석 요청에 실패했습니다.");
+      const items = Array.isArray(payload.items) ? payload.items.filter((item) => item.page >= 1 && item.page <= sourcePages) : [];
+      setReviewItems(items); setScore(Math.max(0, Math.min(100, Number(payload.score) || 0))); setAnalysisSummary(payload.summary || "검수가 완료되었습니다.");
+      setProgress(100); setActivePage(items[0]?.page ?? 1); setActiveType("all");
+      window.setTimeout(() => setStage("result"), 250);
+    } catch (reason) {
+      setAnalysisError(reason instanceof Error ? reason.message : "문서를 분석하는 중 문제가 발생했습니다.");
+      setStage("setup"); setProgress(0);
+    } finally {
+      if (timerRef.current) clearInterval(timerRef.current);
+    }
   }
 
   function reset() {
     if (timerRef.current) clearInterval(timerRef.current);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
-    setSourceFile(null); setPreviewUrl(""); setSourcePages(0); setProgress(0); setStage("setup");
+    setSourceFile(null); setPreviewUrl(""); setSourcePages(0); setProgress(0); setStage("setup"); setReviewItems([]); setAnalysisError(""); setAnalysisSummary(""); setScore(100);
     if (fileInput.current) fileInput.current.value = "";
   }
 
@@ -176,7 +149,7 @@ export default function Home() {
             <div className="hero-badge"><Icon name="shield" /> 2022 개정 교육과정 기반</div>
             <h1>수학 문제 검수,<br /><em>더 정확하고 빠르게</em></h1>
             <p>PDF와 이미지를 올리면 교육과정, 편집 기준, 수학적 오류를<br className="desktop" /> 한 번에 분석해 수정안을 제안합니다.</p>
-            <div className="proof-row"><span><Icon name="check" /> NCIC 교육과정 참조</span><span><Icon name="check" /> 파일은 브라우저에서 처리</span><span><Icon name="check" /> 결과 보고서 저장</span></div>
+            <div className="proof-row"><span><Icon name="check" /> NCIC 교육과정 참조</span><span><Icon name="check" /> 실제 문서 OCR·수식 분석</span><span><Icon name="check" /> 결과 보고서 저장</span></div>
           </section>
 
           <section className="flow-strip" aria-label="검수 절차">
@@ -223,7 +196,8 @@ export default function Home() {
                     <div className="selected-file"><span className="file-preview">{sourceFile.type.startsWith("image/") ? <img src={previewUrl} alt="업로드 미리보기" /> : <Icon name="file" />}</span><div><strong>{sourceFile.name}</strong><small>{(sourceFile.size / 1024 / 1024).toFixed(2)}MB · {sourcePages ? `${sourcePages}페이지 · 분석 준비 완료` : "페이지 확인 중"}</small></div><button onClick={reset} aria-label="파일 삭제"><Icon name="close" /></button></div>
                   )}
                   <button className="analyze-button" type="button" disabled={!sourceFile || !sourcePages} onClick={startAnalysis}><Icon name="search" /> 검수 시작하기 <Icon name="arrow" /></button>
-                  <p className="privacy-copy"><Icon name="shield" /> 업로드한 파일은 서버에 저장되지 않습니다.</p>
+                  {analysisError && <p className="error-banner" role="alert">{analysisError}</p>}
+                  <p className="privacy-copy"><Icon name="shield" /> 검수를 위해 파일이 OpenAI API로 암호화 전송됩니다.</p>
                 </section>
               </div>
             )}
@@ -236,6 +210,7 @@ export default function Home() {
             <article className="score-card"><span>종합 적합도</span><strong>{score}<small>점</small></strong><p><i style={{ width: `${score}%` }} /></p><em>검토가 필요한 항목이 {reviewItems.length}개 있습니다.</em></article>
             {(Object.keys(typeMeta) as ReviewType[]).map((type) => { const count = reviewItems.filter((item) => item.type === type).length; return <button className={`metric-card ${typeMeta[type].color} ${activeType === type ? "selected" : ""}`} key={type} onClick={() => setActiveType(activeType === type ? "all" : type)}><span>{typeMeta[type].label}</span><strong>{count}<small>건</small></strong><em>{count === 0 ? "적합" : count > 1 ? "수정 필요" : "검토 권장"}</em></button>; })}
           </div>
+          {analysisSummary && <p className="result-summary">{analysisSummary}</p>}
 
           <div className="review-layout">
             <aside className="page-sidebar"><div><strong>검토 페이지</strong><span>{issuePages.length}개</span></div>{issuePages.map((page) => <button key={page} className={activePage === page ? "active" : ""} onClick={() => setActivePage(page)}><span className={`page-thumb p${page}`}><i>{page}</i></span><em><strong>{page}페이지</strong><small>{reviewItems.filter((item) => item.page === page).length}개 항목</small></em></button>)}</aside>
