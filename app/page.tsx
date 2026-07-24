@@ -27,6 +27,7 @@ function Icon({ name }: { name: string }) {
 export default function Home() {
   const fileInput = useRef<HTMLInputElement>(null);
   const guideInput = useRef<HTMLInputElement>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [tool, setTool] = useState<"review" | "split">("review");
   const [grade, setGrade] = useState("초등 6학년");
   const [sourceFile, setSourceFile] = useState<File | null>(null);
@@ -42,10 +43,19 @@ export default function Home() {
   const [score, setScore] = useState(100);
   const [analysisSummary, setAnalysisSummary] = useState("");
   const [analysisError, setAnalysisError] = useState("");
+  const [aiConfigured, setAiConfigured] = useState<boolean | null>(null);
 
   useEffect(() => () => {
+    if (timerRef.current) clearInterval(timerRef.current);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
   }, [previewUrl]);
+
+  useEffect(() => {
+    void fetch("/api/review")
+      .then((response) => response.json())
+      .then((payload: { configured?: boolean }) => setAiConfigured(Boolean(payload.configured)))
+      .catch(() => setAiConfigured(false));
+  }, []);
 
   const visibleItems = useMemo(
     () => reviewItems.filter((item) => item.page === activePage && (activeType === "all" || item.type === activeType)),
@@ -56,7 +66,8 @@ export default function Home() {
   async function selectSource(file?: File) {
     if (!file) return;
     const valid = file.type === "application/pdf" || file.type.startsWith("image/") || /\.(pdf|png|jpe?g|webp)$/i.test(file.name);
-    if (!valid) return;
+    if (!valid) { setAnalysisError("PDF, PNG, JPG, WEBP 파일만 선택할 수 있습니다."); return; }
+    if (file.size > 20 * 1024 * 1024) { setAnalysisError("문제 파일은 최대 20MB까지 업로드할 수 있습니다."); return; }
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setSourceFile(file);
     setPreviewUrl(URL.createObjectURL(file));
@@ -86,7 +97,20 @@ export default function Home() {
     if (!sourceFile || !sourcePages) return;
     setStage("analyzing"); setProgress(3); setAnalysisError("");
     try {
-      const result = await runLocalReview(sourceFile, guideFile, grade, setProgress);
+      let result: { score: number; summary: string; items: ReviewItem[] };
+      if (aiConfigured) {
+        timerRef.current = setInterval(() => setProgress((current) => Math.min(90, current + (current < 55 ? 2 : 1))), 700);
+        const form = new FormData();
+        form.append("file", sourceFile); form.append("grade", grade); form.append("totalPages", String(sourcePages));
+        if (guideFile) form.append("guide", guideFile);
+        const response = await fetch("/api/review", { method: "POST", body: form });
+        const payload = await response.json() as { error?: string; score?: number; summary?: string; items?: ReviewItem[] };
+        if (!response.ok) throw new Error(payload.error || "AI 정밀 검수 요청에 실패했습니다.");
+        result = { score: Math.max(0, Math.min(100, Number(payload.score) || 0)), summary: payload.summary || "AI 정밀 검수가 완료되었습니다.", items: Array.isArray(payload.items) ? payload.items : [] };
+        setProgress(100);
+      } else {
+        result = await runLocalReview(sourceFile, guideFile, grade, setProgress);
+      }
       const items = result.items.filter((item) => item.page >= 1 && item.page <= sourcePages);
       setReviewItems(items); setScore(result.score); setAnalysisSummary(result.summary);
       setActivePage(items[0]?.page ?? 1); setActiveType("all");
@@ -94,10 +118,13 @@ export default function Home() {
     } catch (reason) {
       setAnalysisError(reason instanceof Error ? reason.message : "문서를 분석하는 중 문제가 발생했습니다.");
       setStage("setup"); setProgress(0);
+    } finally {
+      if (timerRef.current) clearInterval(timerRef.current);
     }
   }
 
   function reset() {
+    if (timerRef.current) clearInterval(timerRef.current);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setSourceFile(null); setPreviewUrl(""); setSourcePages(0); setProgress(0); setStage("setup"); setReviewItems([]); setAnalysisError(""); setAnalysisSummary(""); setScore(100);
     if (fileInput.current) fileInput.current.value = "";
@@ -115,7 +142,7 @@ export default function Home() {
   return (
     <main>
       <header className="topbar">
-        <button className="brand brand-button" onClick={() => setTool("review")}><span className="brand-mark"><Icon name="check" /></span><span>수학도구</span><i>LOCAL</i></button>
+        <button className="brand brand-button" onClick={() => setTool("review")}><span className="brand-mark"><Icon name="check" /></span><span>수학도구</span><i>{aiConfigured ? "AI" : "LOCAL"}</i></button>
         <nav className="tool-nav"><button className={tool === "review" ? "active" : ""} onClick={() => setTool("review")}>수학 문제 검수</button><button className={tool === "split" ? "active" : ""} onClick={() => setTool("split")}>PDF 나누기</button><a href="https://ncic.re.kr/" target="_blank" rel="noreferrer">교육과정 자료</a></nav>
       </header>
 
@@ -124,14 +151,14 @@ export default function Home() {
           <section className="hero" id="top">
             <div className="hero-badge"><Icon name="shield" /> 2022 개정 교육과정 기반</div>
             <h1>수학 문제 검수,<br /><em>더 정확하고 빠르게</em></h1>
-            <p>PDF와 이미지를 올리면 파일 전송 없이 교육과정, 편집 기준, 계산 오류를<br className="desktop" /> 브라우저에서 자동 점검해 수정안을 제안합니다.</p>
-            <div className="proof-row"><span><Icon name="check" /> NCIC 교육과정 참조</span><span><Icon name="check" /> 무료 로컬 OCR·규칙 검수</span><span><Icon name="check" /> 결과 보고서 저장</span></div>
+            <p>PDF와 이미지를 올리면 교육과정, 편집 기준, 정답과 풀이 논리까지<br className="desktop" /> AI가 문항별로 다시 풀어 검증하고 수정안을 제안합니다.</p>
+            <div className="proof-row"><span><Icon name="check" /> NCIC 교육과정 참조</span><span><Icon name="check" /> GPT 수학 정밀 검증</span><span><Icon name="check" /> 결과 보고서 저장</span></div>
           </section>
 
           <section className="flow-strip" aria-label="검수 절차">
             <div className="flow-step active"><b>01</b><span><strong>검수 기준 설정</strong><small>학년과 편집 기준 선택</small></span></div>
             <i>→</i><div className={`flow-step ${sourceFile ? "active" : ""}`}><b>02</b><span><strong>문제 파일 업로드</strong><small>PDF 또는 이미지 첨부</small></span></div>
-            <i>→</i><div className={`flow-step ${stage === "analyzing" ? "active" : ""}`}><b>03</b><span><strong>로컬 자동 검수</strong><small>4개 기준 동시 분석</small></span></div>
+            <i>→</i><div className={`flow-step ${stage === "analyzing" ? "active" : ""}`}><b>03</b><span><strong>{aiConfigured ? "AI 정밀 검수" : "로컬 자동 검수"}</strong><small>4개 기준 동시 분석</small></span></div>
             <i>→</i><div className="flow-step"><b>04</b><span><strong>결과 확인</strong><small>수정안 검토 및 저장</small></span></div>
           </section>
 
@@ -139,7 +166,7 @@ export default function Home() {
             {stage === "analyzing" ? (
               <div className="analyzing-card">
                 <div className="orbit" style={{ background: `conic-gradient(#356fe6 ${progress}%, #e8edf5 0)` }}><span>{progress}%</span></div>
-                <p className="section-label">브라우저 로컬 검수 진행 중</p>
+                <p className="section-label">{aiConfigured ? "GPT 수학 정밀 검수 진행 중" : "브라우저 로컬 검수 진행 중"}</p>
                 <h2>문항을 꼼꼼하게 살펴보고 있어요</h2>
                 <p>{progress < 35 ? "문서에서 수식과 텍스트를 읽는 중입니다." : progress < 70 ? `${grade} 성취기준과 문항을 비교하고 있습니다.` : "오류를 분류하고 수정안을 정리하고 있습니다."}</p>
                 <div className="analysis-track"><span style={{ width: `${progress}%` }} /></div>
@@ -157,8 +184,8 @@ export default function Home() {
                   </select>
                   <div className="curriculum-status"><span className="status-icon"><Icon name="check" /></span><div><strong>2022 개정 수학과 교육과정 연결됨</strong><small>NCIC 국가교육과정정보센터의 {grade} 성취기준을 참조합니다.</small></div><a href="https://ncic.re.kr/" target="_blank" rel="noreferrer">원문 보기 ↗</a></div>
                   <label className="field-label">내부 편집 통일 사항 <span className="optional">선택</span></label>
-                  <input ref={guideInput} type="file" accept=".pdf,.txt,text/plain,application/pdf" hidden onChange={(e) => setGuideFile(e.target.files?.[0] ?? null)} />
-                  <button className="guide-upload" type="button" onClick={() => guideInput.current?.click()}><Icon name="file" /><span><strong>{guideFile?.name ?? "편집 기준 파일을 첨부해 주세요"}</strong><small>텍스트형 PDF, TXT · BEFORE → AFTER 규칙 지원</small></span><em>{guideFile ? "변경" : "파일 선택"}</em></button>
+                  <input ref={guideInput} type="file" accept=".pdf,.doc,.docx,.txt,text/plain,application/pdf" hidden onChange={(e) => setGuideFile(e.target.files?.[0] ?? null)} />
+                  <button className="guide-upload" type="button" onClick={() => guideInput.current?.click()}><Icon name="file" /><span><strong>{guideFile?.name ?? "편집 기준 파일을 첨부해 주세요"}</strong><small>PDF, DOCX, TXT · 최대 10MB</small></span><em>{guideFile ? "변경" : "파일 선택"}</em></button>
                 </section>
 
                 <section className="setup-card">
@@ -166,14 +193,14 @@ export default function Home() {
                   <input ref={fileInput} type="file" accept="application/pdf,image/png,image/jpeg,image/webp" hidden onChange={onFileChange} />
                   {!sourceFile ? (
                     <div className={`dropzone ${dragging ? "dragging" : ""}`} onDragOver={(e) => e.preventDefault()} onDragEnter={() => setDragging(true)} onDragLeave={() => setDragging(false)} onDrop={onDrop}>
-                      <span className="upload-circle"><Icon name="upload" /></span><strong>파일을 여기에 끌어다 놓으세요</strong><p>또는</p><button type="button" onClick={() => fileInput.current?.click()}>내 컴퓨터에서 선택</button><small>PDF, PNG, JPG · 최대 50MB</small>
+                      <span className="upload-circle"><Icon name="upload" /></span><strong>파일을 여기에 끌어다 놓으세요</strong><p>또는</p><button type="button" onClick={() => fileInput.current?.click()}>내 컴퓨터에서 선택</button><small>PDF, PNG, JPG · 최대 20MB</small>
                     </div>
                   ) : (
                     <div className="selected-file"><span className="file-preview">{sourceFile.type.startsWith("image/") ? <img src={previewUrl} alt="업로드 미리보기" /> : <Icon name="file" />}</span><div><strong>{sourceFile.name}</strong><small>{(sourceFile.size / 1024 / 1024).toFixed(2)}MB · {sourcePages ? `${sourcePages}페이지 · 분석 준비 완료` : "페이지 확인 중"}</small></div><button onClick={reset} aria-label="파일 삭제"><Icon name="close" /></button></div>
                   )}
-                  <button className="analyze-button" type="button" disabled={!sourceFile || !sourcePages} onClick={startAnalysis}><Icon name="search" /> 무료 검수 시작하기 <Icon name="arrow" /></button>
+                  <button className="analyze-button" type="button" disabled={!sourceFile || !sourcePages || aiConfigured === null} onClick={startAnalysis}><Icon name="search" /> {aiConfigured === null ? "검수 준비 확인 중" : aiConfigured ? "AI 정밀 검수 시작하기" : "무료 로컬 검수 시작하기"} <Icon name="arrow" /></button>
                   {analysisError && <p className="error-banner" role="alert">{analysisError}</p>}
-                  <p className="privacy-copy"><Icon name="shield" /> 파일은 서버나 외부 API로 전송되지 않고 현재 브라우저에서만 처리됩니다.</p>
+                  <p className="privacy-copy"><Icon name="shield" /> {aiConfigured ? "정밀 검수를 위해 파일이 OpenAI API로 암호화 전송되며 응답 저장은 비활성화됩니다." : "API가 없으면 파일은 현재 브라우저에서만 처리됩니다."}</p>
                 </section>
               </div>
             )}
@@ -201,7 +228,7 @@ export default function Home() {
           </div>
         </section>
       )}
-      <footer><div className="brand"><span className="brand-mark"><Icon name="check" /></span><span>수학도구</span><i>LOCAL</i></div><p>수학 문제 검수와 PDF 분할을 외부 파일 전송 없이 안전하게 처리하세요.</p></footer>
+      <footer><div className="brand"><span className="brand-mark"><Icon name="check" /></span><span>수학도구</span><i>{aiConfigured ? "AI" : "LOCAL"}</i></div><p>AI 수학 문제 검수와 브라우저 PDF 분할을 한곳에서 편리하게 처리하세요.</p></footer>
     </main>
   );
 }

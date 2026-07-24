@@ -21,13 +21,13 @@ test("수학 문제 검수 앱의 초기 화면을 렌더링한다", async () =>
   assert.match(html, /<title>수학도구 AI/);
   assert.match(html, /수학 문제 검수/);
   assert.match(html, /2022 개정 교육과정/);
-  assert.match(html, /무료 검수 시작하기/);
-  assert.match(html, /외부 API로 전송되지 않고/);
+  assert.match(html, /검수 준비 확인 중/);
+  assert.match(html, /GPT 수학 정밀 검증/);
   assert.match(html, /PDF 나누기/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/);
 });
 
-test("서버 검수 API가 제거되어 있다", async () => {
+test("API 키가 없으면 AI 검수 설정 오류를 반환한다", async () => {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("api-test", `${process.pid}-${Date.now()}`);
   const { default: worker } = await import(workerUrl.href);
@@ -36,5 +36,6 @@ test("서버 검수 API가 제거되어 있다", async () => {
     { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } },
     { waitUntil() {}, passThroughOnException() {} },
   );
-  assert.equal(response.status, 404);
+  assert.equal(response.status, 503);
+  assert.match(await response.text(), /API 키/);
 });
