@@ -67,16 +67,16 @@ export default function PdfSplitter() {
       setBytes(buffer); setProgress(38);
       const pdfjs = await import("pdfjs-dist");
       pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
-      const document = await pdfjs.getDocument({ data: buffer.slice(0) }).promise;
-      setTotalPages(document.numPages); setPagesPerFile(Math.min(3, document.numPages)); setRangeText(`1-${document.numPages}`); setProgress(72);
-      const page = await document.getPage(1);
+      const pdfDocument = await pdfjs.getDocument({ data: buffer.slice(0) }).promise;
+      setTotalPages(pdfDocument.numPages); setPagesPerFile(Math.min(3, pdfDocument.numPages)); setRangeText(`1-${pdfDocument.numPages}`); setProgress(72);
+      const page = await pdfDocument.getPage(1);
       const base = page.getViewport({ scale: 1 });
       const viewport = page.getViewport({ scale: Math.min(1.5, 420 / base.width) });
       const canvas = document.createElement("canvas"); const context = canvas.getContext("2d");
       if (!context) throw new Error("미리보기를 만들 수 없습니다.");
       canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
       await page.render({ canvas, canvasContext: context, viewport }).promise;
-      setPreview(canvas.toDataURL("image/jpeg", .86)); await document.destroy(); setProgress(100);
+      setPreview(canvas.toDataURL("image/jpeg", .86)); await pdfDocument.destroy(); setProgress(100);
     } catch { setError("PDF를 읽을 수 없습니다. 파일이 손상되었거나 암호로 보호되었는지 확인해 주세요."); setFile(null); }
     finally { setBusy(false); }
   }
