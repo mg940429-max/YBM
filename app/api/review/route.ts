@@ -136,7 +136,8 @@ export async function POST(request: Request) {
 - 실제 수정이 필요한 항목만 items에 넣고, 같은 오류를 중복 보고하지 마세요.
 - 확신할 수 없는 OCR 추정이나 단순 취향은 오류로 만들지 마세요.
 - before는 원문의 잘못된 부분을 정확히 옮기고 after는 바로 교체 가능한 수정안으로 씁니다.
-- 수식 중심의 before/after는 올바른 LaTeX를 $...$로 감싸고 format을 latex로 지정합니다. 한국어 문장은 format을 text로 지정합니다.
+- before, after, description의 문장 안에 수식이 하나라도 있으면 각 수식을 반드시 올바른 LaTeX의 $...$ 또는 $$...$$로 감쌉니다.
+- 전체 내용이 수식 중심이면 format을 latex로, 한국어 문장 속에 인라인 수식이 섞인 경우에는 format을 text로 지정합니다.
 - 오류가 하나도 없을 때만 items를 빈 배열로 반환합니다. summary에는 검증한 문항과 핵심 판단을 한국어로 간결하게 설명합니다.`,
             }],
           },

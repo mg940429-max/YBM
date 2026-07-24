@@ -50,6 +50,39 @@ function MathFormula({ value }: { value: string }) {
   }
 }
 
+const mathTokenPattern = /(\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|\$[^$\n]+?\$)/g;
+
+function parseMathToken(token: string) {
+  if (token.startsWith("$$") && token.endsWith("$$")) return { source: token.slice(2, -2), displayMode: true };
+  if (token.startsWith("\\[") && token.endsWith("\\]")) return { source: token.slice(2, -2), displayMode: true };
+  if (token.startsWith("\\(") && token.endsWith("\\)")) return { source: token.slice(2, -2), displayMode: false };
+  if (token.startsWith("$") && token.endsWith("$")) return { source: token.slice(1, -1), displayMode: false };
+  return null;
+}
+
+function RichMathText({ value, forceMath = false, className }: { value: string; forceMath?: boolean; className?: string }) {
+  const parts = value.split(mathTokenPattern);
+  const hasDelimitedMath = parts.some((part) => parseMathToken(part));
+  if (!hasDelimitedMath && forceMath) return <MathFormula value={value} />;
+
+  return <p className={className}>{parts.map((part, index) => {
+    const math = parseMathToken(part);
+    if (!math) return part;
+    try {
+      const html = katex.renderToString(math.source.trim(), {
+        displayMode: math.displayMode,
+        throwOnError: true,
+        strict: false,
+        trust: false,
+        output: "htmlAndMathml",
+      });
+      return <span className={math.displayMode ? "math-block" : "inline-math"} key={`${index}-${part}`} dangerouslySetInnerHTML={{ __html: html }} />;
+    } catch {
+      return <span className="math-source-fallback" key={`${index}-${part}`}>{part}</span>;
+    }
+  })}</p>;
+}
+
 function hasDraggedFiles(transfer: DataTransfer) {
   const types = Array.from(transfer.types ?? []);
   return transfer.files.length > 0 || types.some((type) => type === "Files" || type.startsWith("image/") || type === "application/pdf");
@@ -285,7 +318,7 @@ export default function Home() {
             <article className="score-card"><span>종합 적합도</span><strong>{score}<small>점</small></strong><p><i style={{ width: `${score}%` }} /></p><em>검토가 필요한 항목이 {reviewItems.length}개 있습니다.</em></article>
             {(Object.keys(typeMeta) as ReviewType[]).map((type) => { const count = reviewItems.filter((item) => item.type === type).length; return <button className={`metric-card ${typeMeta[type].color} ${activeType === type ? "selected" : ""}`} key={type} onClick={() => setActiveType(activeType === type ? "all" : type)}><span>{typeMeta[type].label}</span><strong>{count}<small>건</small></strong><em>{count === 0 ? "적합" : count > 1 ? "수정 필요" : "검토 권장"}</em></button>; })}
           </div>
-          {analysisSummary && <p className="result-summary">{analysisSummary}</p>}
+          {analysisSummary && <RichMathText value={analysisSummary} className="result-summary" />}
 
           <div className="review-layout">
             <aside className="page-sidebar"><div><strong>검토 페이지</strong><span>{issuePages.length}개</span></div>{issuePages.length ? issuePages.map((page) => <button key={page} className={activePage === page ? "active" : ""} onClick={() => setActivePage(page)}><span className={`page-thumb p${page}`}><i>{page}</i></span><em><strong>{page}페이지</strong><small>{reviewItems.filter((item) => item.page === page).length}개 항목</small></em></button>) : <p className="no-issue-pages">검토가 필요한 페이지가 없습니다.</p>}</aside>
@@ -293,8 +326,8 @@ export default function Home() {
               <div className="review-heading"><div><span className="section-label">PAGE {activePage}</span><h2>{activePage}페이지 검수 결과</h2></div><div className="filter-row"><button className={activeType === "all" ? "active" : ""} onClick={() => setActiveType("all")}>전체</button>{(Object.keys(typeMeta) as ReviewType[]).map((type) => <button className={activeType === type ? "active" : ""} key={type} onClick={() => setActiveType(type)}>{typeMeta[type].short}</button>)}</div></div>
               {visibleItems.length ? visibleItems.map((item) => <article className="issue-card" key={item.id}>
                 <div className="issue-title"><span className={`tag ${typeMeta[item.type].color}`}>{typeMeta[item.type].label}</span><h3>{item.title}</h3><b>수정 필요</b></div>
-                <p>{item.description}</p>{item.standard && <a href="https://ncic.re.kr/" target="_blank" rel="noreferrer" className="standard-link">참조 기준 · {item.standard} ↗</a>}
-                <div className={`compare ${item.format === "latex" ? "latex-compare" : ""}`}><div><span>BEFORE</span>{item.format === "latex" ? <MathFormula value={item.before} /> : <p>{item.before}</p>}</div><i>→</i><div><span>AFTER</span>{item.format === "latex" ? <MathFormula value={item.after} /> : <p>{item.after}</p>}</div></div>
+                <RichMathText value={item.description} />{item.standard && <a href="https://ncic.re.kr/" target="_blank" rel="noreferrer" className="standard-link">참조 기준 · {item.standard} ↗</a>}
+                <div className={`compare ${item.format === "latex" ? "latex-compare" : ""}`}><div><span>BEFORE</span><RichMathText value={item.before} forceMath={item.format === "latex"} /></div><i>→</i><div><span>AFTER</span><RichMathText value={item.after} forceMath={item.format === "latex"} /></div></div>
               </article>) : <div className="empty-filter"><Icon name="check" /><strong>이 조건에 해당하는 항목이 없습니다.</strong><button onClick={() => setActiveType("all")}>전체 결과 보기</button></div>}
             </section>
           </div>
