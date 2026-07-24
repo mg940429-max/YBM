@@ -50,6 +50,11 @@ function MathFormula({ value }: { value: string }) {
   }
 }
 
+function hasDraggedFiles(transfer: DataTransfer) {
+  const types = Array.from(transfer.types ?? []);
+  return transfer.files.length > 0 || types.some((type) => type === "Files" || type.startsWith("image/") || type === "application/pdf");
+}
+
 export default function Home() {
   const fileInput = useRef<HTMLInputElement>(null);
   const guideInput = useRef<HTMLInputElement>(null);
@@ -86,7 +91,7 @@ export default function Home() {
 
   useEffect(() => {
     const preventBrowserFileOpen = (event: globalThis.DragEvent) => {
-      if (event.dataTransfer?.types.includes("Files")) event.preventDefault();
+      if (event.dataTransfer && hasDraggedFiles(event.dataTransfer)) event.preventDefault();
     };
     window.addEventListener("dragover", preventBrowserFileOpen);
     window.addEventListener("drop", preventBrowserFileOpen);
@@ -131,7 +136,7 @@ export default function Home() {
   function onDragEnter(event: DragEvent<HTMLElement>) {
     event.preventDefault();
     event.stopPropagation();
-    if (!event.dataTransfer.types.includes("Files")) return;
+    if (!hasDraggedFiles(event.dataTransfer)) return;
     dragDepthRef.current += 1;
     setDragging(true);
   }
@@ -139,7 +144,7 @@ export default function Home() {
   function onDragOver(event: DragEvent<HTMLElement>) {
     event.preventDefault();
     event.stopPropagation();
-    if (event.dataTransfer.types.includes("Files")) event.dataTransfer.dropEffect = "copy";
+    if (hasDraggedFiles(event.dataTransfer)) event.dataTransfer.dropEffect = "copy";
   }
 
   function onDragLeave(event: DragEvent<HTMLElement>) {
@@ -243,7 +248,7 @@ export default function Home() {
               </div>
             ) : (
               <div className="setup-grid">
-                <section className={`setup-card upload-card ${dragging ? "dragging" : ""}`} onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
+                <section className="setup-card">
                   <div className="card-title"><b>1</b><div><h2>검수 기준을 설정해 주세요</h2><p>대상 학년과 내부 편집 기준을 선택합니다.</p></div></div>
                   <label className="field-label" htmlFor="grade">대상 학년 <span>필수</span></label>
                   <select id="grade" value={grade} onChange={(e) => setGrade(e.target.value)}>
@@ -255,12 +260,12 @@ export default function Home() {
                   <button className="guide-upload" type="button" onClick={() => guideInput.current?.click()}><Icon name="file" /><span><strong>{guideFile?.name ?? "편집 기준 파일을 첨부해 주세요"}</strong><small>PDF, DOCX, TXT · 최대 10MB</small></span><em>{guideFile ? "변경" : "파일 선택"}</em></button>
                 </section>
 
-                <section className="setup-card">
+                <section className={`setup-card upload-card ${dragging ? "dragging" : ""}`} onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
                   <div className="card-title"><b>2</b><div><h2>검수할 문제를 올려 주세요</h2><p>여러 페이지가 포함된 PDF와 이미지를 지원합니다.</p></div></div>
                   <input ref={fileInput} type="file" accept="application/pdf,image/png,image/jpeg,image/webp" hidden onChange={onFileChange} />
                   {!sourceFile ? (
-                    <div className={`dropzone ${dragging ? "dragging" : ""}`}>
-                      <span className="upload-circle"><Icon name="upload" /></span><strong>파일을 여기에 끌어다 놓으세요</strong><p>또는</p><button type="button" onClick={() => fileInput.current?.click()}>내 컴퓨터에서 선택</button><small>PDF, PNG, JPG · 최대 20MB</small>
+                    <div className={`dropzone ${dragging ? "dragging" : ""}`} role="button" tabIndex={0} onClick={() => fileInput.current?.click()} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") fileInput.current?.click(); }}>
+                      {dragging ? <div className="drop-feedback" aria-live="polite"><span><Icon name="upload" /></span><strong>여기에 놓으면 바로 업로드됩니다</strong><small>PDF, PNG, JPG, WEBP</small></div> : <><span className="upload-circle"><Icon name="upload" /></span><strong>파일을 여기에 끌어다 놓으세요</strong><p>또는</p><button type="button" onClick={(event) => { event.stopPropagation(); fileInput.current?.click(); }}>내 컴퓨터에서 선택</button><small>PDF, PNG, JPG · 최대 20MB</small></>}
                     </div>
                   ) : (
                     <div className="selected-file"><span className="file-preview">{sourceFile.type.startsWith("image/") ? <img src={previewUrl} alt="업로드 미리보기" /> : <Icon name="file" />}</span><div><strong>{sourceFile.name}</strong><small>{(sourceFile.size / 1024 / 1024).toFixed(2)}MB · {sourcePages ? `${sourcePages}페이지 · 분석 준비 완료` : "페이지 확인 중"}</small></div><button onClick={reset} aria-label="파일 삭제"><Icon name="close" /></button></div>
