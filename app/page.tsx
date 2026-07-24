@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from "react";
+import katex from "katex";
 import PdfSplitter from "./PdfSplitter";
 import { runLocalReview, type ReviewItem, type ReviewType } from "./localReview";
 
@@ -22,6 +23,31 @@ function Icon({ name }: { name: string }) {
     upload: "↑", file: "▤", check: "✓", report: "▦", close: "×", download: "↓", search: "⌕", arrow: "→", shield: "◆",
   };
   return <span aria-hidden="true">{icons[name] ?? "•"}</span>;
+}
+
+function MathFormula({ value }: { value: string }) {
+  const source = value
+    .trim()
+    .replace(/^```(?:latex|tex)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .replace(/^\$\$([\s\S]*)\$\$$/, "$1")
+    .replace(/^\\\[([\s\S]*)\\\]$/, "$1")
+    .replace(/^\\\(([\s\S]*)\\\)$/, "$1")
+    .replace(/^\$([\s\S]*)\$$/, "$1")
+    .trim();
+
+  try {
+    const html = katex.renderToString(source, {
+      displayMode: true,
+      throwOnError: false,
+      strict: false,
+      trust: false,
+      output: "htmlAndMathml",
+    });
+    return <div className="math-render" aria-label={value} dangerouslySetInnerHTML={{ __html: html }} />;
+  } catch {
+    return <p className="math-fallback">{value}</p>;
+  }
 }
 
 export default function Home() {
@@ -222,7 +248,7 @@ export default function Home() {
               {visibleItems.length ? visibleItems.map((item) => <article className="issue-card" key={item.id}>
                 <div className="issue-title"><span className={`tag ${typeMeta[item.type].color}`}>{typeMeta[item.type].label}</span><h3>{item.title}</h3><b>수정 필요</b></div>
                 <p>{item.description}</p>{item.standard && <a href="https://ncic.re.kr/" target="_blank" rel="noreferrer" className="standard-link">참조 기준 · {item.standard} ↗</a>}
-                <div className={`compare ${item.format === "latex" ? "latex-compare" : ""}`}><div><span>BEFORE</span>{item.format === "latex" ? <code>{item.before}</code> : <p>{item.before}</p>}</div><i>→</i><div><span>AFTER</span>{item.format === "latex" ? <code>{item.after}</code> : <p>{item.after}</p>}</div></div>
+                <div className={`compare ${item.format === "latex" ? "latex-compare" : ""}`}><div><span>BEFORE</span>{item.format === "latex" ? <MathFormula value={item.before} /> : <p>{item.before}</p>}</div><i>→</i><div><span>AFTER</span>{item.format === "latex" ? <MathFormula value={item.after} /> : <p>{item.after}</p>}</div></div>
               </article>) : <div className="empty-filter"><Icon name="check" /><strong>이 조건에 해당하는 항목이 없습니다.</strong><button onClick={() => setActiveType("all")}>전체 결과 보기</button></div>}
             </section>
           </div>

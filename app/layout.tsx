@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
+import "katex/dist/katex.min.css";
 import "./globals.css";
 
 const title = "수학도구 AI | 수학 문제 검수와 PDF 나누기";
