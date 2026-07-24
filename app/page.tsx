@@ -54,6 +54,7 @@ export default function Home() {
   const fileInput = useRef<HTMLInputElement>(null);
   const guideInput = useRef<HTMLInputElement>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const dragDepthRef = useRef(0);
   const [tool, setTool] = useState<"review" | "split">("review");
   const [grade, setGrade] = useState("초등 6학년");
   const [sourceFile, setSourceFile] = useState<File | null>(null);
@@ -81,6 +82,18 @@ export default function Home() {
       .then((response) => response.json())
       .then((payload: { configured?: boolean }) => setAiConfigured(Boolean(payload.configured)))
       .catch(() => setAiConfigured(false));
+  }, []);
+
+  useEffect(() => {
+    const preventBrowserFileOpen = (event: globalThis.DragEvent) => {
+      if (event.dataTransfer?.types.includes("Files")) event.preventDefault();
+    };
+    window.addEventListener("dragover", preventBrowserFileOpen);
+    window.addEventListener("drop", preventBrowserFileOpen);
+    return () => {
+      window.removeEventListener("dragover", preventBrowserFileOpen);
+      window.removeEventListener("drop", preventBrowserFileOpen);
+    };
   }, []);
 
   const visibleItems = useMemo(
@@ -115,8 +128,36 @@ export default function Home() {
   }
 
   function onFileChange(event: ChangeEvent<HTMLInputElement>) { void selectSource(event.target.files?.[0]); }
-  function onDrop(event: DragEvent<HTMLDivElement>) {
-    event.preventDefault(); setDragging(false); void selectSource(event.dataTransfer.files?.[0]);
+  function onDragEnter(event: DragEvent<HTMLElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!event.dataTransfer.types.includes("Files")) return;
+    dragDepthRef.current += 1;
+    setDragging(true);
+  }
+
+  function onDragOver(event: DragEvent<HTMLElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.dataTransfer.types.includes("Files")) event.dataTransfer.dropEffect = "copy";
+  }
+
+  function onDragLeave(event: DragEvent<HTMLElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setDragging(false);
+  }
+
+  function onDrop(event: DragEvent<HTMLElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepthRef.current = 0;
+    setDragging(false);
+    const itemFile = Array.from(event.dataTransfer.items ?? [])
+      .find((item) => item.kind === "file")
+      ?.getAsFile();
+    void selectSource(itemFile ?? event.dataTransfer.files?.[0]);
   }
 
   async function startAnalysis() {
@@ -202,7 +243,7 @@ export default function Home() {
               </div>
             ) : (
               <div className="setup-grid">
-                <section className="setup-card">
+                <section className={`setup-card upload-card ${dragging ? "dragging" : ""}`} onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
                   <div className="card-title"><b>1</b><div><h2>검수 기준을 설정해 주세요</h2><p>대상 학년과 내부 편집 기준을 선택합니다.</p></div></div>
                   <label className="field-label" htmlFor="grade">대상 학년 <span>필수</span></label>
                   <select id="grade" value={grade} onChange={(e) => setGrade(e.target.value)}>
@@ -218,7 +259,7 @@ export default function Home() {
                   <div className="card-title"><b>2</b><div><h2>검수할 문제를 올려 주세요</h2><p>여러 페이지가 포함된 PDF와 이미지를 지원합니다.</p></div></div>
                   <input ref={fileInput} type="file" accept="application/pdf,image/png,image/jpeg,image/webp" hidden onChange={onFileChange} />
                   {!sourceFile ? (
-                    <div className={`dropzone ${dragging ? "dragging" : ""}`} onDragOver={(e) => e.preventDefault()} onDragEnter={() => setDragging(true)} onDragLeave={() => setDragging(false)} onDrop={onDrop}>
+                    <div className={`dropzone ${dragging ? "dragging" : ""}`}>
                       <span className="upload-circle"><Icon name="upload" /></span><strong>파일을 여기에 끌어다 놓으세요</strong><p>또는</p><button type="button" onClick={() => fileInput.current?.click()}>내 컴퓨터에서 선택</button><small>PDF, PNG, JPG · 최대 20MB</small>
                     </div>
                   ) : (
