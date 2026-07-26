@@ -21,7 +21,7 @@ test("수학 문제 검수 앱의 초기 화면을 렌더링한다", async () =>
   assert.match(html, /<title>수학도구 AI/);
   assert.match(html, /수학 문제 검수/);
   assert.match(html, /2022 개정 교육과정/);
-  assert.match(html, /검수 준비 확인 중/);
+  assert.match(html, /API 연결 확인 중/);
   assert.match(html, /GPT 수학 정밀 검증/);
   assert.match(html, /PDF 나누기/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/);

@@ -3,7 +3,7 @@
 import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import katex from "katex";
 import PdfSplitter from "./PdfSplitter";
-import { runLocalReview, type ReviewItem, type ReviewType } from "./localReview";
+import { type ReviewItem, type ReviewType } from "./localReview";
 
 const gradeGroups = [
   { label: "초등", grades: ["1학년", "2학년", "3학년", "4학년", "5학년", "6학년"] },
@@ -116,10 +116,25 @@ export default function Home() {
   }, [previewUrl]);
 
   useEffect(() => {
-    void fetch("/api/review")
-      .then((response) => response.json())
-      .then((payload: { configured?: boolean }) => setAiConfigured(Boolean(payload.configured)))
-      .catch(() => setAiConfigured(false));
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    const checkConfiguration = async (attempt = 0) => {
+      try {
+        const response = await fetch(`/api/review?check=${Date.now()}`, { cache: "no-store" });
+        if (!response.ok) throw new Error("API 상태 확인 실패");
+        const payload = await response.json() as { configured?: boolean };
+        if (!cancelled) setAiConfigured(Boolean(payload.configured));
+      } catch {
+        if (cancelled) return;
+        if (attempt < 2) retryTimer = setTimeout(() => void checkConfiguration(attempt + 1), 900);
+        else setAiConfigured(false);
+      }
+    };
+    void checkConfiguration();
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
   }, []);
 
   useEffect(() => {
@@ -200,22 +215,21 @@ export default function Home() {
 
   async function startAnalysis() {
     if (!sourceFile || !sourcePages) return;
+    if (!aiConfigured) {
+      setAnalysisError("OpenAI API 키가 배포 환경에 연결되지 않았습니다. 서버 환경변수를 확인한 뒤 다시 배포해 주세요.");
+      return;
+    }
     setStage("analyzing"); setProgress(3); setAnalysisError("");
     try {
-      let result: { score: number; summary: string; items: ReviewItem[] };
-      if (aiConfigured) {
-        timerRef.current = setInterval(() => setProgress((current) => Math.min(90, current + (current < 55 ? 2 : 1))), 700);
-        const form = new FormData();
-        form.append("file", sourceFile); form.append("grade", grade); form.append("totalPages", String(sourcePages));
-        if (guideFile) form.append("guide", guideFile);
-        const response = await fetch("/api/review", { method: "POST", body: form });
-        const payload = await response.json() as { error?: string; score?: number; summary?: string; items?: ReviewItem[] };
-        if (!response.ok) throw new Error(payload.error || "AI 정밀 검수 요청에 실패했습니다.");
-        result = { score: Math.max(0, Math.min(100, Number(payload.score) || 0)), summary: payload.summary || "AI 정밀 검수가 완료되었습니다.", items: Array.isArray(payload.items) ? payload.items : [] };
-        setProgress(100);
-      } else {
-        result = await runLocalReview(sourceFile, guideFile, grade, setProgress);
-      }
+      timerRef.current = setInterval(() => setProgress((current) => Math.min(90, current + (current < 55 ? 2 : 1))), 700);
+      const form = new FormData();
+      form.append("file", sourceFile); form.append("grade", grade); form.append("totalPages", String(sourcePages));
+      if (guideFile) form.append("guide", guideFile);
+      const response = await fetch("/api/review", { method: "POST", body: form });
+      const payload = await response.json() as { error?: string; score?: number; summary?: string; items?: ReviewItem[] };
+      if (!response.ok) throw new Error(payload.error || "AI 정밀 검수 요청에 실패했습니다.");
+      const result = { score: Math.max(0, Math.min(100, Number(payload.score) || 0)), summary: payload.summary || "AI 정밀 검수가 완료되었습니다.", items: Array.isArray(payload.items) ? payload.items : [] };
+      setProgress(100);
       const items = result.items.filter((item) => item.page >= 1 && item.page <= sourcePages);
       setReviewItems(items); setScore(result.score); setAnalysisSummary(result.summary);
       setActivePage(items[0]?.page ?? 1); setActiveType("all");
@@ -247,7 +261,7 @@ export default function Home() {
   return (
     <main>
       <header className="topbar">
-        <button className="brand brand-button" onClick={() => setTool("review")}><span className="brand-mark"><Icon name="check" /></span><span>수학도구</span><i>{aiConfigured ? "AI" : "LOCAL"}</i></button>
+        <button className="brand brand-button" onClick={() => setTool("review")}><span className="brand-mark"><Icon name="check" /></span><span>수학도구</span><i>{aiConfigured === null ? "확인 중" : aiConfigured ? "AI" : "API 필요"}</i></button>
         <nav className="tool-nav"><button className={tool === "review" ? "active" : ""} onClick={() => setTool("review")}>수학 문제 검수</button><button className={tool === "split" ? "active" : ""} onClick={() => setTool("split")}>PDF 나누기</button><a href="https://ncic.re.kr/" target="_blank" rel="noreferrer">교육과정 자료</a></nav>
       </header>
 
@@ -263,7 +277,7 @@ export default function Home() {
           <section className="flow-strip" aria-label="검수 절차">
             <div className="flow-step active"><b>01</b><span><strong>검수 기준 설정</strong><small>학년과 편집 기준 선택</small></span></div>
             <i>→</i><div className={`flow-step ${sourceFile ? "active" : ""}`}><b>02</b><span><strong>문제 파일 업로드</strong><small>PDF 또는 이미지 첨부</small></span></div>
-            <i>→</i><div className={`flow-step ${stage === "analyzing" ? "active" : ""}`}><b>03</b><span><strong>{aiConfigured ? "AI 정밀 검수" : "로컬 자동 검수"}</strong><small>4개 기준 동시 분석</small></span></div>
+            <i>→</i><div className={`flow-step ${stage === "analyzing" ? "active" : ""}`}><b>03</b><span><strong>AI 정밀 검수</strong><small>4개 기준 동시 분석</small></span></div>
             <i>→</i><div className="flow-step"><b>04</b><span><strong>결과 확인</strong><small>수정안 검토 및 저장</small></span></div>
           </section>
 
@@ -271,7 +285,7 @@ export default function Home() {
             {stage === "analyzing" ? (
               <div className="analyzing-card">
                 <div className="orbit" style={{ background: `conic-gradient(#356fe6 ${progress}%, #e8edf5 0)` }}><span>{progress}%</span></div>
-                <p className="section-label">{aiConfigured ? "GPT 수학 정밀 검수 진행 중" : "브라우저 로컬 검수 진행 중"}</p>
+                <p className="section-label">GPT 수학 정밀 검수 진행 중</p>
                 <h2>문항을 꼼꼼하게 살펴보고 있어요</h2>
                 <p>{progress < 35 ? "문서에서 수식과 텍스트를 읽는 중입니다." : progress < 70 ? `${grade} 성취기준과 문항을 비교하고 있습니다.` : "오류를 분류하고 수정안을 정리하고 있습니다."}</p>
                 <div className="analysis-track"><span style={{ width: `${progress}%` }} /></div>
@@ -303,9 +317,9 @@ export default function Home() {
                   ) : (
                     <div className="selected-file"><span className="file-preview">{sourceFile.type.startsWith("image/") ? <img src={previewUrl} alt="업로드 미리보기" /> : <Icon name="file" />}</span><div><strong>{sourceFile.name}</strong><small>{(sourceFile.size / 1024 / 1024).toFixed(2)}MB · {sourcePages ? `${sourcePages}페이지 · 분석 준비 완료` : "페이지 확인 중"}</small></div><button onClick={reset} aria-label="파일 삭제"><Icon name="close" /></button></div>
                   )}
-                  <button className="analyze-button" type="button" disabled={!sourceFile || !sourcePages || aiConfigured === null} onClick={startAnalysis}><Icon name="search" /> {aiConfigured === null ? "검수 준비 확인 중" : aiConfigured ? "AI 정밀 검수 시작하기" : "무료 로컬 검수 시작하기"} <Icon name="arrow" /></button>
+                  <button className="analyze-button" type="button" disabled={!sourceFile || !sourcePages || aiConfigured !== true} onClick={startAnalysis}><Icon name="search" /> {aiConfigured === null ? "API 연결 확인 중" : aiConfigured ? "AI 정밀 검수 시작하기" : "API 키 연결 필요"} <Icon name="arrow" /></button>
                   {analysisError && <p className="error-banner" role="alert">{analysisError}</p>}
-                  <p className="privacy-copy"><Icon name="shield" /> {aiConfigured ? "정밀 검수를 위해 파일이 OpenAI API로 암호화 전송되며 응답 저장은 비활성화됩니다." : "API가 없으면 파일은 현재 브라우저에서만 처리됩니다."}</p>
+                  <p className="privacy-copy"><Icon name="shield" /> {aiConfigured ? "정밀 검수를 위해 파일이 OpenAI API로 암호화 전송되며 응답 저장은 비활성화됩니다." : "배포 환경의 OPENAI_API_KEY 연결 상태를 확인해 주세요."}</p>
                 </section>
               </div>
             )}
@@ -333,7 +347,7 @@ export default function Home() {
           </div>
         </section>
       )}
-      <footer><div className="brand"><span className="brand-mark"><Icon name="check" /></span><span>수학도구</span><i>{aiConfigured ? "AI" : "LOCAL"}</i></div><p>AI 수학 문제 검수와 브라우저 PDF 분할을 한곳에서 편리하게 처리하세요.</p></footer>
+      <footer><div className="brand"><span className="brand-mark"><Icon name="check" /></span><span>수학도구</span><i>AI</i></div><p>AI 수학 문제 검수와 브라우저 PDF 분할을 한곳에서 편리하게 처리하세요.</p></footer>
     </main>
   );
 }

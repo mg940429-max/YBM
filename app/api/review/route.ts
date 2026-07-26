@@ -1,6 +1,9 @@
 import { Buffer } from "node:buffer";
 import { NextResponse } from "next/server";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const MAX_SOURCE_BYTES = 20 * 1024 * 1024;
 const MAX_GUIDE_BYTES = 10 * 1024 * 1024;
 const ALLOWED_SOURCE_TYPES = new Set(["application/pdf", "image/png", "image/jpeg", "image/webp"]);
@@ -42,7 +45,10 @@ function extractOutputText(payload: Record<string, unknown>) {
 }
 
 export async function GET() {
-  return NextResponse.json({ configured: Boolean(process.env.OPENAI_API_KEY), model: process.env.OPENAI_MODEL || "gpt-5.6-terra" });
+  return NextResponse.json(
+    { configured: Boolean(process.env.OPENAI_API_KEY), model: process.env.OPENAI_MODEL || "gpt-5.6-terra" },
+    { headers: { "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0" } },
+  );
 }
 
 export async function POST(request: Request) {
