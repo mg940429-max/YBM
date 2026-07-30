@@ -109,6 +109,11 @@ function safeReferenceUrl(value?: string) {
   }
 }
 
+function visibleSourcePage(value?: string) {
+  const label = value?.trim() ?? "";
+  return /^(없음|확인\s*불가|미확인|-|n\/a)$/i.test(label) ? "" : label;
+}
+
 export default function Home() {
   const fileInput = useRef<HTMLInputElement>(null);
   const guideInput = useRef<HTMLInputElement>(null);
@@ -333,9 +338,10 @@ export default function Home() {
     ];
 
     const detailData: SheetData = [
-      ["페이지", "영역", "세부 항목", "판단", "제목", "설명", "참조 기준", "BEFORE", "AFTER", "출처"].map((value) => headerCell(value)),
+      ["PDF 페이지", "지면 표기", "영역", "세부 항목", "판단", "제목", "설명", "참조 기준", "BEFORE", "AFTER", "출처"].map((value) => headerCell(value)),
       ...reviewItems.map((item) => [
         { value: item.page, type: Number, align: "center", borderColor: line, borderStyle: "thin" },
+        { ...valueCell(visibleSourcePage(item.sourcePage)), align: "center" },
         valueCell(typeMeta[item.type].group),
         valueCell(typeMeta[item.type].label),
         { ...valueCell(item.judgment ?? "검토 필요"), fontWeight: "bold", textColor: red, align: "center" },
@@ -358,7 +364,7 @@ export default function Home() {
         {
           data: detailData, sheet: "상세 결과", showGridLines: false, stickyRowsCount: 1,
           zoomScale: 85, orientation: "landscape",
-          columns: [{ width: 9 }, { width: 18 }, { width: 22 }, { width: 13 }, { width: 28 }, { width: 48 }, { width: 32 }, { width: 38 }, { width: 38 }, { width: 36 }],
+          columns: [{ width: 11 }, { width: 11 }, { width: 18 }, { width: 22 }, { width: 13 }, { width: 28 }, { width: 48 }, { width: 32 }, { width: 38 }, { width: 38 }, { width: 36 }],
         },
       ]).toBlob();
       const url = URL.createObjectURL(blob);
@@ -508,7 +514,7 @@ export default function Home() {
             <section className="review-main">
               <div className="review-heading"><div><span className="section-label">PAGE {activePage}</span><h2>{activePage}페이지 점검 결과</h2></div><div className="filter-row"><button className={activeType === "all" ? "active" : ""} onClick={() => setActiveType("all")}>전체</button>{reviewTypes.map((type) => <button className={activeType === type ? "active" : ""} key={type} onClick={() => setActiveType(type)}>{typeMeta[type].short}</button>)}</div></div>
               {visibleItems.length ? visibleItems.map((item) => <article className="issue-card" key={item.id}>
-                <div className="issue-title"><span className={`tag ${typeMeta[item.type].color}`}>{typeMeta[item.type].label}</span><h3>{item.title}</h3><b>{item.judgment ?? "검토 필요"}</b></div>
+                <div className="issue-title"><span className="source-page-badge">PDF {item.page}페이지{visibleSourcePage(item.sourcePage) ? ` · 지면 ${visibleSourcePage(item.sourcePage)}쪽` : ""}</span><span className={`tag ${typeMeta[item.type].color}`}>{typeMeta[item.type].label}</span><h3>{item.title}</h3><b>{item.judgment ?? "검토 필요"}</b></div>
                 <RichMathText value={item.description} />
                 {item.standard && <a href={safeReferenceUrl(item.referenceUrl)} target="_blank" rel="noreferrer" className="standard-link">참조 기준 · {item.standard} ↗</a>}
                 <div className={`compare ${item.format === "latex" ? "latex-compare" : ""}`}><div><span>BEFORE</span><RichMathText value={item.before} forceMath={item.format === "latex"} /></div><i>→</i><div><span>AFTER</span><RichMathText value={item.after} forceMath={item.format === "latex"} /></div></div>

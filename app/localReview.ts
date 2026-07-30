@@ -3,6 +3,7 @@ export type ReviewType = "screening" | "curriculum" | "style" | "math" | "scope"
 export type ReviewItem = {
   id: number;
   page: number;
+  sourcePage?: string;
   type: ReviewType;
   title: string;
   description: string;

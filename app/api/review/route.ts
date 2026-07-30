@@ -123,9 +123,10 @@ export async function POST(request: Request) {
           items: {
             type: "object",
             additionalProperties: false,
-            required: ["page", "type", "judgment", "title", "description", "before", "after", "standard", "referenceUrl", "format"],
+            required: ["page", "sourcePage", "type", "judgment", "title", "description", "before", "after", "standard", "referenceUrl", "format"],
             properties: {
               page: { type: "integer", minimum: 1, maximum: totalPages },
+              sourcePage: { type: "string", maxLength: 30 },
               type: { type: "string", enum: ["screening", "curriculum", "scope", "math", "style"] },
               judgment: { type: "string", enum: ["부적합 가능", "검토 필요", "수정 권고"] },
               title: { type: "string" },
@@ -176,6 +177,7 @@ export async function POST(request: Request) {
 - 실제 수정 또는 편집자 확인이 필요한 항목만 items에 넣는다. 오류가 없으면 빈 배열을 반환한다.
 - 같은 원인을 유형만 바꿔 중복 보고하지 않는다. 가장 직접적인 한 유형으로 분류한다.
 - before에는 원문의 해당 부분을 정확히 옮기고, after에는 바로 교체 가능한 수정안을 쓴다.
+- page에는 첨부 PDF의 실제 파일 페이지 인덱스를 쓴다. 원문 지면의 머리말·꼬리말 등에 인쇄된 쪽 번호를 명확히 확인할 수 있으면 sourcePage에 보이는 그대로 쓰고, 확인할 수 없으면 빈 문자열로 둔다.
 - 단순 삭제가 필요한 경우에도 after를 빈 문자열로 두지 말고 '[삭제]'라고 쓴다.
 - standard에는 성취기준 코드나 심사 영역과 판단 근거를 간결하게 쓴다.
 - referenceUrl에는 근거를 확인한 공식 NCIC 또는 한국과학창의재단의 HTTPS 주소를 쓴다.
