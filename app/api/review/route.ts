@@ -4,8 +4,10 @@ import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const MAX_SOURCE_BYTES = 20 * 1024 * 1024;
+const MAX_SOURCE_BYTES = 50_000_000;
 const MAX_GUIDE_BYTES = 10 * 1024 * 1024;
+const MAX_TOTAL_INPUT_BYTES = 50_000_000;
+const MAX_SOURCE_PAGES = 100;
 const NCIC_URL = "https://ncic.re.kr/inv/org/list.do";
 const KOSAC_URL = "https://www.kosac.re.kr/menus/270/boards/386/posts/39295";
 const ALLOWED_SOURCE_TYPES = new Set(["application/pdf", "image/png", "image/jpeg", "image/webp"]);
@@ -66,16 +68,23 @@ export async function POST(request: Request) {
     const grade = String(form.get("grade") ?? "").trim();
     const requestedScope = String(form.get("reviewScope") ?? "proofreading").trim();
     const reviewScope = ALLOWED_SCOPES.has(requestedScope) ? requestedScope : "proofreading";
-    const totalPages = Math.max(1, Math.min(100, Number(form.get("totalPages")) || 1));
+    const requestedPages = Number(form.get("totalPages"));
+    const totalPages = Number.isFinite(requestedPages) ? Math.floor(requestedPages) : 0;
 
     if (!(source instanceof File) || subject !== "수학" || !grade) {
       return NextResponse.json({ error: "수학 과목, 대상 학년과 점검 파일을 확인해 주세요." }, { status: 400 });
     }
+    if (totalPages < 1 || totalPages > MAX_SOURCE_PAGES) {
+      return NextResponse.json({ error: `한 번에 검수할 수 있는 분량은 최대 ${MAX_SOURCE_PAGES}페이지입니다.` }, { status: 400 });
+    }
     if (!ALLOWED_SOURCE_TYPES.has(source.type) || source.size > MAX_SOURCE_BYTES) {
-      return NextResponse.json({ error: "교과서 파일은 PDF·PNG·JPG·WEBP 형식, 최대 20MB까지 가능합니다." }, { status: 400 });
+      return NextResponse.json({ error: "교과서 파일은 PDF·PNG·JPG·WEBP 형식, 최대 50MB까지 가능합니다." }, { status: 400 });
     }
     if (guide instanceof File && guide.size > 0 && (!ALLOWED_GUIDE_TYPES.has(guide.type) || guide.size > MAX_GUIDE_BYTES)) {
       return NextResponse.json({ error: "편집 기준은 PDF·DOCX·TXT 형식, 최대 10MB까지 가능합니다." }, { status: 400 });
+    }
+    if (source.size + (guide instanceof File ? guide.size : 0) > MAX_TOTAL_INPUT_BYTES) {
+      return NextResponse.json({ error: "교과서 파일과 편집 기준 파일의 합계는 최대 50MB까지 가능합니다." }, { status: 400 });
     }
 
     const scopeInstruction = reviewScope === "proofreading"

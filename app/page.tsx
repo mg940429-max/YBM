@@ -7,6 +7,9 @@ import { type ReviewItem, type ReviewType } from "./localReview";
 
 const NCIC_URL = "https://ncic.re.kr/inv/org/list.do";
 const KOSAC_URL = "https://www.kosac.re.kr/menus/270/boards/386/posts/39295";
+const MAX_SOURCE_MB = 50;
+const MAX_SOURCE_BYTES = MAX_SOURCE_MB * 1_000_000;
+const MAX_SOURCE_PAGES = 100;
 
 const subjects = ["수학", "영어", "체육", "음악", "보건", "한문", "정보"] as const;
 type ReviewScope = "proofreading" | "screening";
@@ -181,10 +184,14 @@ export default function Home() {
     if (!file) return;
     const valid = file.type === "application/pdf" || file.type.startsWith("image/") || /\.(pdf|png|jpe?g|webp)$/i.test(file.name);
     if (!valid) { setAnalysisError("PDF, PNG, JPG, WEBP 파일만 선택할 수 있습니다."); return; }
-    if (file.size > 20 * 1024 * 1024) { setAnalysisError("검수 파일은 최대 20MB까지 업로드할 수 있습니다."); return; }
+    if (file.size > MAX_SOURCE_BYTES) {
+      setAnalysisError(`검수 파일은 최대 ${MAX_SOURCE_MB}MB까지 업로드할 수 있습니다.`);
+      return;
+    }
     if (previewUrl) URL.revokeObjectURL(previewUrl);
+    const nextPreviewUrl = URL.createObjectURL(file);
     setSourceFile(file);
-    setPreviewUrl(URL.createObjectURL(file));
+    setPreviewUrl(nextPreviewUrl);
     setSourcePages(file.type.startsWith("image/") ? 1 : 0);
     setStage("setup"); setProgress(0); setReviewItems([]); setAnalysisError(""); setAnalysisSummary("");
     if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
@@ -192,6 +199,13 @@ export default function Home() {
         const pdfjs = await import("pdfjs-dist");
         pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
         const document = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+        if (document.numPages > MAX_SOURCE_PAGES) {
+          await document.destroy();
+          URL.revokeObjectURL(nextPreviewUrl);
+          setSourceFile(null); setSourcePages(0); setPreviewUrl("");
+          setAnalysisError(`한 번에 최대 ${MAX_SOURCE_PAGES}페이지까지 검수할 수 있습니다. PDF를 나눈 뒤 다시 첨부해 주세요.`);
+          return;
+        }
         setSourcePages(document.numPages);
         await document.destroy();
       } catch {
@@ -381,7 +395,7 @@ export default function Home() {
                   {!sourceFile ? (
                     <div className={`dropzone ${dragging ? "dragging" : ""}`} role="button" tabIndex={0} onClick={() => fileInput.current?.click()} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") fileInput.current?.click(); }}>
                       <span className="upload-circle"><Icon name="upload" /></span><strong>파일을 이 영역에 끌어다 놓으세요</strong><p>또는</p>
-                      <button type="button" onClick={(event) => { event.stopPropagation(); fileInput.current?.click(); }}>내 컴퓨터에서 선택</button><small>PDF, PNG, JPG, WEBP · 최대 20MB</small>
+                      <button type="button" onClick={(event) => { event.stopPropagation(); fileInput.current?.click(); }}>내 컴퓨터에서 선택</button><small>PDF, PNG, JPG, WEBP · 최대 50MB · PDF 최대 100페이지</small>
                     </div>
                   ) : (
                     <div className="selected-file"><span className="file-preview">{sourceFile.type.startsWith("image/") ? <img src={previewUrl} alt="업로드 미리보기" /> : <Icon name="file" />}</span><div><strong>{sourceFile.name}</strong><small>{(sourceFile.size / 1024 / 1024).toFixed(2)}MB · {sourcePages ? `${sourcePages}페이지 · 분석 준비 완료` : "페이지 확인 중"}</small></div><button onClick={reset} aria-label="파일 삭제">×</button></div>
