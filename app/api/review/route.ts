@@ -16,7 +16,7 @@ const ALLOWED_GUIDE_TYPES = new Set([
   "text/plain",
   "text/markdown",
 ]);
-const ALLOWED_SCOPES = new Set(["all", "proofreading", "screening"]);
+const ALLOWED_SCOPES = new Set(["proofreading", "screening"]);
 
 type InputContent = Record<string, unknown>;
 
@@ -64,8 +64,8 @@ export async function POST(request: Request) {
     const guide = form.get("guide");
     const subject = String(form.get("subject") ?? "").trim();
     const grade = String(form.get("grade") ?? "").trim();
-    const requestedScope = String(form.get("reviewScope") ?? "all").trim();
-    const reviewScope = ALLOWED_SCOPES.has(requestedScope) ? requestedScope : "all";
+    const requestedScope = String(form.get("reviewScope") ?? "proofreading").trim();
+    const reviewScope = ALLOWED_SCOPES.has(requestedScope) ? requestedScope : "proofreading";
     const totalPages = Math.max(1, Math.min(100, Number(form.get("totalPages")) || 1));
 
     if (!(source instanceof File) || subject !== "수학" || !grade) {
@@ -80,9 +80,7 @@ export async function POST(request: Request) {
 
     const scopeInstruction = reviewScope === "proofreading"
       ? "교정·교열, 내부 편집 기준, 수학적 정확성만 점검한다. screening·curriculum·scope 항목은 생성하지 않는다."
-      : reviewScope === "screening"
-        ? "검정 심사 적합성, 2022 개정 수학과 교육과정과 학년·과목 범위만 점검한다. math·style 항목은 생성하지 않는다."
-        : "교정·교열과 검정 교육과정 적합성의 모든 유형을 통합 점검한다.";
+      : "검정 심사 적합성, 2022 개정 수학과 교육과정과 학년·과목 범위만 점검한다. math·style 항목은 생성하지 않는다.";
 
     const sourceBytes = await source.arrayBuffer();
     const userContent: InputContent[] = [

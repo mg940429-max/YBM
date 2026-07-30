@@ -22,7 +22,7 @@ test("YBM 교과서 심사 지원 앱의 초기 화면을 렌더링한다", asyn
   assert.match(html, /교과서 사전 점검/);
   assert.match(html, /2022 개정 교육과정/);
   assert.match(html, /확인 중/);
-  assert.match(html, /검정 교육과정 적합성/);
+  assert.match(html, /교육과정 적합성/);
   assert.match(html, /PDF 나누기/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/);
 });

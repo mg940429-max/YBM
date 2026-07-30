@@ -2,6 +2,7 @@
 
 import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import katex from "katex";
+import Image from "next/image";
 import PdfSplitter from "./PdfSplitter";
 import { type ReviewItem, type ReviewType } from "./localReview";
 
@@ -9,7 +10,7 @@ const NCIC_URL = "https://ncic.re.kr/inv/org/list.do";
 const KOSAC_URL = "https://www.kosac.re.kr/menus/270/boards/386/posts/39295";
 
 const subjects = ["수학", "영어", "체육", "음악", "보건", "한문", "정보"] as const;
-type ReviewScope = "all" | "proofreading" | "screening";
+type ReviewScope = "proofreading" | "screening";
 
 const gradeGroups = [
   { label: "초등", grades: ["1학년", "2학년", "3학년", "4학년", "5학년", "6학년"] },
@@ -18,9 +19,8 @@ const gradeGroups = [
 ];
 
 const scopeMeta: Record<ReviewScope, { label: string; description: string }> = {
-  all: { label: "통합 사전 점검", description: "교정·교열과 검정 교육과정 적합성을 함께 확인합니다." },
-  proofreading: { label: "교정·교열 오류 판독", description: "수학적 오류, 표기, 문장과 내부 편집 기준을 확인합니다." },
-  screening: { label: "검정 교육과정 적합성", description: "2022 개정 교육과정 및 검정 심사 기준 부적합 가능성을 확인합니다." },
+  proofreading: { label: "교정·교열", description: "수학적 오류, 표기, 문장과 내부 편집 기준을 확인합니다." },
+  screening: { label: "교육과정 적합성", description: "2022 개정 교육과정과 검정 심사 기준의 부적합 가능성을 확인합니다." },
 };
 
 const typeMeta: Record<ReviewType, { label: string; short: string; color: string; group: string }> = {
@@ -38,14 +38,10 @@ function Icon({ name }: { name: string }) {
   return <span aria-hidden="true">{icons[name] ?? "•"}</span>;
 }
 
-function YbmLogo({ compact = false }: { compact?: boolean }) {
+function YbmLogo() {
   return (
-    <span className={`ybm-logo ${compact ? "compact" : ""}`} aria-label="YBM">
-      <span className="ybm-symbol" aria-hidden="true">
-        <i className="red r1" /><i className="red r2" /><i className="red r3" />
-        <i className="blue b1" /><i className="blue b2" /><i className="blue b3" />
-      </span>
-      {!compact && <strong>YBM</strong>}
+    <span className="ybm-logo" aria-label="YBM">
+      <Image src="/ybm-logo.png" width={148} height={66} alt="YBM" priority />
     </span>
   );
 }
@@ -117,7 +113,7 @@ export default function Home() {
   const dragDepthRef = useRef(0);
   const [tool, setTool] = useState<"review" | "split">("review");
   const [subject, setSubject] = useState<(typeof subjects)[number]>("수학");
-  const [reviewScope, setReviewScope] = useState<ReviewScope>("all");
+  const [reviewScope, setReviewScope] = useState<ReviewScope>("proofreading");
   const [grade, setGrade] = useState("초등 6학년");
   const [sourceFile, setSourceFile] = useState<File | null>(null);
   const [guideFile, setGuideFile] = useState<File | null>(null);
@@ -133,6 +129,9 @@ export default function Home() {
   const [analysisSummary, setAnalysisSummary] = useState("");
   const [analysisError, setAnalysisError] = useState("");
   const [aiConfigured, setAiConfigured] = useState<boolean | null>(null);
+  const reviewTypes: ReviewType[] = reviewScope === "proofreading"
+    ? ["math", "style"]
+    : ["screening", "curriculum", "scope"];
 
   useEffect(() => () => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -302,19 +301,19 @@ export default function Home() {
           <section className="hero textbook-hero" id="top">
             <div className="hero-kicker">YBM TEXTBOOK QUALITY WORKSPACE</div>
             <div className="hero-badge"><Icon name="shield" /> 2022 개정 교육과정 기반 사전 점검</div>
-            <h1>교과서 개발의 마지막 확인,<br /><em>심사 기준까지 한 번에</em></h1>
-            <p>교정·교열과 수학적 정확성은 물론, 검정 교육과정 심사 기준에 부적합할 가능성이 있는 부분을<br className="desktop" /> 페이지별로 찾아 편집자가 바로 검토할 수 있는 수정 보고서로 정리합니다.</p>
+            <h1>교과서 개발의 마지막 확인,<br /><em>심사 기준까지 정확하게</em></h1>
+            <p>교정·교열 또는 교육과정 적합성을 선택해 페이지별 검토 결과와 수정안을 확인하세요.</p>
             <div className="proof-row">
               <span><Icon name="check" /> NCIC 공식 교육과정 참조</span>
               <span><Icon name="check" /> 수학 문항·풀이 정밀 검증</span>
-              <span><Icon name="check" /> 검정 심사 전 위험 요소 점검</span>
+              <span><Icon name="check" /> 검정 심사 전 사전 점검</span>
             </div>
           </section>
 
           <section className="flow-strip" aria-label="점검 절차">
             <div className="flow-step active"><b>01</b><span><strong>과목·범위 설정</strong><small>수학 및 점검 영역 선택</small></span></div>
             <i>→</i><div className={`flow-step ${sourceFile ? "active" : ""}`}><b>02</b><span><strong>교과서 업로드</strong><small>PDF 또는 이미지 첨부</small></span></div>
-            <i>→</i><div className={`flow-step ${stage === "analyzing" ? "active" : ""}`}><b>03</b><span><strong>AI 통합 점검</strong><small>교육과정·내용·표현 분석</small></span></div>
+            <i>→</i><div className={`flow-step ${stage === "analyzing" ? "active" : ""}`}><b>03</b><span><strong>AI 선택 점검</strong><small>선택 영역 집중 분석</small></span></div>
             <i>→</i><div className="flow-step"><b>04</b><span><strong>편집자 검토</strong><small>수정안 확인 및 저장</small></span></div>
           </section>
 
@@ -327,25 +326,25 @@ export default function Home() {
               {subjects.map((item) => {
                 const available = item === "수학";
                 return <button key={item} type="button" disabled={!available} className={subject === item ? "active" : ""} onClick={() => available && setSubject(item)}>
-                  <span>{item.slice(0, 1)}</span><strong>{item}</strong><small>{available ? "사용 가능" : "준비 중"}</small>
+                  <strong>{item}</strong><small>{available ? "사용 가능" : "준비 중"}</small>
                 </button>;
               })}
             </div>
           </section>
 
-          <section className="scope-section" aria-labelledby="scope-title">
-            <div className="section-heading">
-              <div><span>STEP 02</span><h2 id="scope-title">점검할 영역을 선택해 주세요</h2></div>
-              <p>통합 점검을 선택하면 두 공정을 한 번에 분석합니다.</p>
-            </div>
-            <div className="scope-grid">
-              {(Object.keys(scopeMeta) as ReviewScope[]).map((scope) => <button type="button" key={scope} className={reviewScope === scope ? "active" : ""} onClick={() => setReviewScope(scope)}>
-                <span><Icon name="check" /></span><div><strong>{scopeMeta[scope].label}</strong><small>{scopeMeta[scope].description}</small></div>
-              </button>)}
-            </div>
-          </section>
+          <section className="review-workspace" aria-labelledby="review-mode-title">
+            <aside className="review-mode-panel">
+              <span>STEP 02</span>
+              <h2 id="review-mode-title">점검 메뉴</h2>
+              <nav aria-label="점검 영역">
+                {(Object.keys(scopeMeta) as ReviewScope[]).map((scope, index) => <button type="button" key={scope} className={reviewScope === scope ? "active" : ""} onClick={() => setReviewScope(scope)}>
+                  <b>{String(index + 1).padStart(2, "0")}</b><div><strong>{scopeMeta[scope].label}</strong><small>{scopeMeta[scope].description}</small></div><i>→</i>
+                </button>)}
+              </nav>
+              <p>두 점검은 기준이 달라 각각 실행해야 더 정확한 결과를 얻을 수 있습니다.</p>
+            </aside>
 
-          <section className="setup-shell" id="workflow">
+            <section className="setup-shell review-workarea" id="workflow">
             {stage === "analyzing" ? (
               <div className="analyzing-card">
                 <div className="orbit" style={{ background: `conic-gradient(#0757a5 ${progress}%, #e8edf5 0)` }}><span>{progress}%</span></div>
@@ -354,13 +353,13 @@ export default function Home() {
                 <p>{progress < 35 ? "문서에서 본문, 수식과 편집 요소를 읽는 중입니다." : progress < 70 ? `${grade} 교육과정과 성취기준을 비교하고 있습니다.` : "부적합 가능성을 분류하고 수정안을 정리하고 있습니다."}</p>
                 <div className="analysis-track"><span style={{ width: `${progress}%` }} /></div>
                 <div className="analysis-checks">
-                  {(Object.keys(typeMeta) as ReviewType[]).map((type, index) => <span className={progress > (index + 1) * 16 ? "done" : ""} key={type}><Icon name="check" /> {typeMeta[type].label}</span>)}
+                  {reviewTypes.map((type, index) => <span className={progress > (index + 1) * (70 / reviewTypes.length) ? "done" : ""} key={type}><Icon name="check" /> {typeMeta[type].label}</span>)}
                 </div>
               </div>
             ) : (
               <div className="setup-grid textbook-setup">
                 <section className="setup-card">
-                  <div className="card-title"><b>3</b><div><h2>교육과정 기준을 설정해 주세요</h2><p>선택한 과정에 맞는 공식 자료를 참조합니다.</p></div></div>
+                  <div className="card-title"><b>3</b><div><h2>{reviewScope === "proofreading" ? "교정 기준을 설정해 주세요" : "교육과정 기준을 설정해 주세요"}</h2><p>{scopeMeta[reviewScope].description}</p></div></div>
                   <label className="field-label" htmlFor="grade">대상 학년·과목 <span>필수</span></label>
                   <select id="grade" value={grade} onChange={(event) => setGrade(event.target.value)}>
                     {gradeGroups.map((group) => <optgroup label={group.label} key={group.label}>{group.grades.map((item) => <option key={`${group.label}-${item}`}>{group.label === "초등" ? `초등 ${item}` : group.label === "중등" ? `중등 ${item}` : item}</option>)}</optgroup>)}
@@ -394,6 +393,7 @@ export default function Home() {
                 </section>
               </div>
             )}
+            </section>
           </section>
           <section className="notice-strip"><strong>안내</strong><p>이 기능은 편집자의 심사 전 검토를 돕는 AI 사전 점검 도구입니다. 공식 검정기관의 최종 심사 결과를 대신하거나 합격을 보장하지 않습니다.</p></section>
         </>
@@ -401,9 +401,9 @@ export default function Home() {
         <section className="result-page" id="top">
           <div className="result-top"><div><button className="back-button" onClick={reset}>← 새 점검</button><p className="section-label">사전 점검 완료</p><h1>{subject} 교과서 점검 결과</h1><span>{sourceFile?.name} · {grade} · 총 {sourcePages}페이지 · {scopeMeta[reviewScope].label}</span></div><button className="save-report" onClick={saveReport}><Icon name="download" /> 결과 보고서 저장</button></div>
           <div className="result-disclaimer">AI가 발견한 ‘부적합 가능성’과 수정 권고입니다. 편집자가 공식 원문과 대조하여 최종 판단해 주세요.</div>
-          <div className="summary-grid textbook-summary">
+          <div className={`summary-grid textbook-summary ${reviewScope}`}>
             <article className="score-card"><span>종합 적합도</span><strong>{score}<small>점</small></strong><p><i style={{ width: `${score}%` }} /></p><em>검토가 필요한 항목이 {reviewItems.length}개 있습니다.</em></article>
-            {(Object.keys(typeMeta) as ReviewType[]).map((type) => {
+            {reviewTypes.map((type) => {
               const count = reviewItems.filter((item) => item.type === type).length;
               return <button className={`metric-card ${typeMeta[type].color} ${activeType === type ? "selected" : ""}`} key={type} onClick={() => setActiveType(activeType === type ? "all" : type)}><span>{typeMeta[type].label}</span><strong>{count}<small>건</small></strong><em>{count === 0 ? "발견 없음" : count > 1 ? "검토 필요" : "확인 권장"}</em></button>;
             })}
@@ -413,7 +413,7 @@ export default function Home() {
           <div className="review-layout">
             <aside className="page-sidebar"><div><strong>검토 페이지</strong><span>{issuePages.length}개</span></div>{issuePages.length ? issuePages.map((page) => <button key={page} className={activePage === page ? "active" : ""} onClick={() => setActivePage(page)}><span className={`page-thumb p${page}`}><i>{page}</i></span><em><strong>{page}페이지</strong><small>{reviewItems.filter((item) => item.page === page).length}개 항목</small></em></button>) : <p className="no-issue-pages">검토가 필요한 페이지가 없습니다.</p>}</aside>
             <section className="review-main">
-              <div className="review-heading"><div><span className="section-label">PAGE {activePage}</span><h2>{activePage}페이지 점검 결과</h2></div><div className="filter-row"><button className={activeType === "all" ? "active" : ""} onClick={() => setActiveType("all")}>전체</button>{(Object.keys(typeMeta) as ReviewType[]).map((type) => <button className={activeType === type ? "active" : ""} key={type} onClick={() => setActiveType(type)}>{typeMeta[type].short}</button>)}</div></div>
+              <div className="review-heading"><div><span className="section-label">PAGE {activePage}</span><h2>{activePage}페이지 점검 결과</h2></div><div className="filter-row"><button className={activeType === "all" ? "active" : ""} onClick={() => setActiveType("all")}>전체</button>{reviewTypes.map((type) => <button className={activeType === type ? "active" : ""} key={type} onClick={() => setActiveType(type)}>{typeMeta[type].short}</button>)}</div></div>
               {visibleItems.length ? visibleItems.map((item) => <article className="issue-card" key={item.id}>
                 <div className="issue-title"><span className={`tag ${typeMeta[item.type].color}`}>{typeMeta[item.type].label}</span><h3>{item.title}</h3><b>{item.judgment ?? "검토 필요"}</b></div>
                 <RichMathText value={item.description} />

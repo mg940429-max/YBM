@@ -370,6 +370,8 @@ button:focus-visible,a:focus-visible,select:focus-visible { outline:3px solid rg
 .notice-strip p { margin:0; font-size:9px; line-height:1.6; }
 .result-disclaimer { margin:-9px 0 15px; padding:10px 13px; border-left:3px solid #e3a33b; background:#fff9ed; color:#79684b; font-size:9px; line-height:1.6; }
 .textbook-summary { grid-template-columns:1.35fr repeat(5,1fr); }
+.textbook-summary.proofreading { grid-template-columns:1.25fr 1fr 1fr; }
+.textbook-summary.screening { grid-template-columns:1.25fr repeat(3,1fr); }
 .metric-card.navy::before { background:var(--navy); }
 .metric-card.navy strong { color:var(--navy); }
 .tag.navy { background:#e8eef4; color:#234967; }
@@ -399,4 +401,60 @@ footer>.ybm-logo .ybm-symbol .blue { background:#fff; }
   .textbook-summary { grid-template-columns:1fr 1fr; }
   .textbook-summary .score-card { grid-column:span 2; }
   .filter-row button { padding:6px 7px; }
+}
+
+/* Compact YBM layout with left review navigation */
+.ybm-logo { width:112px; height:42px; display:block; overflow:hidden; border-radius:2px; background:#fff; }
+.ybm-logo img { width:100%; height:100%; display:block; object-fit:cover; }
+.ybm-brand { gap:13px; }
+.textbook-hero { min-height:330px; padding-top:46px; padding-bottom:44px; }
+.textbook-hero .hero-kicker { margin-bottom:9px; font-size:8px; }
+.textbook-hero .hero-badge { margin-bottom:13px; padding:5px 9px; font-size:9px; }
+.textbook-hero h1 { font-size:clamp(32px,4.2vw,47px); }
+.textbook-hero>p { margin-top:13px; font-size:12px; line-height:1.65; }
+.textbook-hero .proof-row { margin-top:17px; font-size:9px; }
+.flow-strip { padding-top:17px; padding-bottom:17px; }
+.subject-section { margin-top:34px; }
+.section-heading h2 { font-size:18px; }
+.section-heading>p { font-size:9px; }
+.subject-grid { gap:7px; }
+.subject-grid button { min-height:61px; padding:10px; gap:4px; box-shadow:none; }
+.subject-grid button strong { font-size:11px; }
+.subject-grid button small { font-size:7px; }
+.subject-grid button.active { border-color:#86aecd; box-shadow:0 6px 16px rgba(7,87,165,.07); }
+.review-workspace { width:min(1180px,calc(100% - 40px)); margin:28px auto 66px; display:grid; grid-template-columns:230px minmax(0,1fr); gap:18px; align-items:start; }
+.review-mode-panel { padding:20px 15px; position:sticky; top:92px; border:1px solid #d8e2ec; border-radius:11px; background:#fff; box-shadow:0 9px 25px rgba(20,57,94,.05); }
+.review-mode-panel>span { color:var(--brand-red); font-size:8px; font-weight:950; letter-spacing:.12em; }
+.review-mode-panel>h2 { margin:5px 3px 15px; color:var(--navy); font-size:16px; letter-spacing:-.03em; }
+.review-mode-panel nav { display:grid; gap:7px; }
+.review-mode-panel nav button { width:100%; min-height:76px; padding:12px 10px; display:grid; grid-template-columns:25px 1fr auto; gap:8px; align-items:start; border:1px solid transparent; border-radius:8px; background:#f6f8fa; color:#7a8795; text-align:left; }
+.review-mode-panel nav button>b { padding-top:1px; color:#9aa7b4; font-size:8px; }
+.review-mode-panel nav button>div { display:flex; flex-direction:column; gap:5px; }
+.review-mode-panel nav button strong { color:#3b5167; font-size:11px; }
+.review-mode-panel nav button small { color:#8593a1; font-size:8px; line-height:1.45; }
+.review-mode-panel nav button>i { padding-top:1px; font-size:11px; font-style:normal; opacity:0; }
+.review-mode-panel nav button.active { border-color:#9bbbd4; background:#eef6fc; color:var(--blue); }
+.review-mode-panel nav button.active>b,.review-mode-panel nav button.active strong,.review-mode-panel nav button.active>i { color:var(--blue); opacity:1; }
+.review-mode-panel>p { margin:14px 3px 0; padding-top:12px; border-top:1px solid #e5eaf0; color:#8995a2; font-size:8px; line-height:1.6; }
+.review-workarea.setup-shell { width:100%; margin:0; }
+.review-workarea .setup-card { padding:23px; }
+.review-workarea .card-title { margin-bottom:19px; }
+.review-workarea .card-title h2 { font-size:16px; }
+.review-workarea .card-title p { font-size:9px; }
+.notice-strip { margin:-42px auto 54px; }
+footer>.ybm-logo { background:#fff; }
+
+@media (max-width:960px) {
+  .review-workspace { grid-template-columns:1fr; }
+  .review-mode-panel { position:static; }
+  .review-mode-panel nav { grid-template-columns:1fr 1fr; }
+  .review-mode-panel>p { margin-top:10px; }
+}
+@media (max-width:760px) {
+  .ybm-brand .ybm-logo { width:87px; height:33px; }
+  .textbook-hero { min-height:290px; }
+  .subject-grid { grid-template-columns:repeat(4,1fr); }
+  .review-workspace { width:calc(100% - 24px); margin-top:22px; }
+  .review-mode-panel nav { grid-template-columns:1fr; }
+  .notice-strip { margin:-40px auto 48px; }
 }
