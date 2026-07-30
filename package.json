@@ -19,7 +19,8 @@
     "pdfjs-dist": "5.4.624",
     "react": "19.2.6",
     "react-dom": "19.2.6",
-    "tesseract.js": "^6.0.1"
+    "tesseract.js": "^6.0.1",
+    "write-excel-file": "^4.1.1"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.37.1",

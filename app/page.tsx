@@ -2,6 +2,7 @@
 
 import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import katex from "katex";
+import type { Cell, SheetData } from "write-excel-file/universal";
 import PdfSplitter from "./PdfSplitter";
 import { type ReviewItem, type ReviewType } from "./localReview";
 
@@ -130,6 +131,8 @@ export default function Home() {
   const [score, setScore] = useState(100);
   const [analysisSummary, setAnalysisSummary] = useState("");
   const [analysisError, setAnalysisError] = useState("");
+  const [exportingReport, setExportingReport] = useState(false);
+  const [reportError, setReportError] = useState("");
   const [aiConfigured, setAiConfigured] = useState<boolean | null>(null);
   const reviewTypes: ReviewType[] = reviewScope === "proofreading"
     ? ["math", "style"]
@@ -279,20 +282,97 @@ export default function Home() {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setSourceFile(null); setPreviewUrl(""); setSourcePages(0); setProgress(0); setStage("setup");
     setReviewItems([]); setAnalysisError(""); setAnalysisSummary(""); setScore(100);
+    setReportError(""); setExportingReport(false);
     if (fileInput.current) fileInput.current.value = "";
   }
 
-  function saveReport() {
-    const rows = reviewItems.map((item) => [
-      `${item.page}쪽`, typeMeta[item.type].group, typeMeta[item.type].label, item.judgment ?? "검토 필요",
-      item.title, item.description, item.standard ?? "", item.before, item.after, item.referenceUrl ?? "",
-    ].join("\t")).join("\n");
-    const content = `YBM 교과서 사전 점검 결과 보고서\n과목: ${subject}\n대상: ${grade}\n점검 범위: ${scopeMeta[reviewScope].label}\n점검일: ${new Date().toLocaleDateString("ko-KR")}\n파일: ${sourceFile?.name ?? "-"}\n종합 적합도: ${score}점\n\n페이지\t영역\t세부 항목\t판단\t제목\t설명\t참조 기준\tBEFORE\tAFTER\t출처\n${rows}`;
-    const blob = new Blob(["\ufeff", content], { type: "text/tab-separated-values;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url; anchor.download = `YBM_${subject}_교과서_사전점검_결과.tsv`; anchor.click();
-    window.setTimeout(() => URL.revokeObjectURL(url), 500);
+  async function saveReport() {
+    if (exportingReport) return;
+    setExportingReport(true);
+    setReportError("");
+
+    const navy = "#0757A5";
+    const red = "#ED2939";
+    const paleBlue = "#EAF3FC";
+    const paleRed = "#FFF0F1";
+    const line = "#D8E1EC";
+    const headerCell = (value: string): Cell => ({
+      value, fontWeight: "bold", textColor: "#FFFFFF", backgroundColor: navy,
+      align: "center", alignVertical: "center", wrap: true, height: 30,
+      borderColor: "#FFFFFF", borderStyle: "thin",
+    });
+    const labelCell = (value: string): Cell => ({
+      value, fontWeight: "bold", textColor: navy, backgroundColor: paleBlue,
+      alignVertical: "center", borderColor: line, borderStyle: "thin",
+    });
+    const valueCell = (value: string | number): Cell => ({
+      value, alignVertical: "center", wrap: true, borderColor: line, borderStyle: "thin",
+    });
+    const today = new Date();
+
+    const summaryData: SheetData = [
+      [{ value: "YBM 교과서 AI 모의 심사 결과 보고서", columnSpan: 6, fontSize: 18, fontWeight: "bold", textColor: "#FFFFFF", backgroundColor: navy, align: "center", alignVertical: "center", height: 38 }, null, null, null, null, null],
+      [null, null, null, null, null, null],
+      [labelCell("과목"), valueCell(subject), labelCell("대상 학년"), valueCell(grade), labelCell("검수일"), { value: today, type: Date, format: "yyyy-mm-dd", borderColor: line, borderStyle: "thin" }],
+      [labelCell("검수 범위"), { ...valueCell(scopeMeta[reviewScope].label), columnSpan: 3 }, null, null, labelCell("총 페이지"), valueCell(sourcePages)],
+      [labelCell("원본 파일"), { ...valueCell(sourceFile?.name ?? "-"), columnSpan: 3 }, null, null, labelCell("종합 적합도"), { ...valueCell(score), type: Number, format: '0"점"', fontWeight: "bold", textColor: score >= 80 ? navy : red }],
+      [null, null, null, null, null, null],
+      [{ value: "검수 결과 요약", columnSpan: 6, fontWeight: "bold", textColor: "#FFFFFF", backgroundColor: red, height: 26 }, null, null, null, null, null],
+      [labelCell("검토 페이지"), valueCell(issuePages.length), labelCell("검토 항목"), valueCell(reviewItems.length), labelCell("전체 페이지"), valueCell(sourcePages)],
+      ...reviewTypes.map((type) => [
+        labelCell(typeMeta[type].label),
+        { ...valueCell(reviewItems.filter((item) => item.type === type).length), type: Number },
+        { value: typeMeta[type].group, columnSpan: 4, textColor: "#55657A", wrap: true, borderColor: line, borderStyle: "thin" },
+        null, null, null,
+      ] as Cell[]),
+      [null, null, null, null, null, null],
+      [{ value: "AI 분석 요약", columnSpan: 6, fontWeight: "bold", textColor: navy, backgroundColor: paleBlue, height: 26 }, null, null, null, null, null],
+      [{ value: analysisSummary || "별도 요약이 없습니다.", columnSpan: 6, wrap: true, alignVertical: "top", height: 70, borderColor: line, borderStyle: "thin" }, null, null, null, null, null],
+      [null, null, null, null, null, null],
+      [{ value: "안내: 본 결과는 편집자의 최종 판단을 지원하는 AI 사전 검수 자료이며, 공식 심사 결과를 의미하지 않습니다.", columnSpan: 6, fontStyle: "italic", textColor: "#67768B", backgroundColor: "#F5F7FA", wrap: true, height: 34 }, null, null, null, null, null],
+    ];
+
+    const detailData: SheetData = [
+      ["페이지", "영역", "세부 항목", "판단", "제목", "설명", "참조 기준", "BEFORE", "AFTER", "출처"].map((value) => headerCell(value)),
+      ...reviewItems.map((item) => [
+        { value: item.page, type: Number, align: "center", borderColor: line, borderStyle: "thin" },
+        valueCell(typeMeta[item.type].group),
+        valueCell(typeMeta[item.type].label),
+        { ...valueCell(item.judgment ?? "검토 필요"), fontWeight: "bold", textColor: red, align: "center" },
+        valueCell(item.title),
+        valueCell(item.description),
+        valueCell(item.standard ?? ""),
+        { ...valueCell(item.before), backgroundColor: paleRed, textColor: "#A51D2D" },
+        { ...valueCell(item.after), backgroundColor: paleBlue, textColor: navy },
+        valueCell(item.referenceUrl ?? ""),
+      ] as Cell[]),
+    ];
+
+    try {
+      const { default: writeExcelFile } = await import("write-excel-file/universal");
+      const blob = await writeExcelFile([
+        {
+          data: summaryData, sheet: "검수 요약", showGridLines: false, zoomScale: 90,
+          columns: [{ width: 18 }, { width: 28 }, { width: 18 }, { width: 28 }, { width: 18 }, { width: 28 }],
+        },
+        {
+          data: detailData, sheet: "상세 결과", showGridLines: false, stickyRowsCount: 1,
+          zoomScale: 85, orientation: "landscape",
+          columns: [{ width: 9 }, { width: 18 }, { width: 22 }, { width: 13 }, { width: 28 }, { width: 48 }, { width: 32 }, { width: 38 }, { width: 38 }, { width: 36 }],
+        },
+      ]).toBlob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      const fileDate = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}`;
+      anchor.href = url;
+      anchor.download = `YBM_${subject}_${grade.replace(/\s+/g, "_")}_AI모의심사_${fileDate}.xlsx`;
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch {
+      setReportError("엑셀 보고서를 만들지 못했습니다. 잠시 후 다시 시도해 주세요.");
+    } finally {
+      setExportingReport(false);
+    }
   }
 
   return (
@@ -412,7 +492,7 @@ export default function Home() {
         </>
       ) : (
         <section className="result-page" id="top">
-          <div className="result-top"><div><button className="back-button" onClick={reset}>← 새 점검</button><p className="section-label">사전 점검 완료</p><h1>{subject} 교과서 점검 결과</h1><span>{sourceFile?.name} · {grade} · 총 {sourcePages}페이지 · {scopeMeta[reviewScope].label}</span></div><button className="save-report" onClick={saveReport}><Icon name="download" /> 결과 보고서 저장</button></div>
+          <div className="result-top"><div><button className="back-button" onClick={reset}>← 새 점검</button><p className="section-label">사전 점검 완료</p><h1>{subject} 교과서 점검 결과</h1><span>{sourceFile?.name} · {grade} · 총 {sourcePages}페이지 · {scopeMeta[reviewScope].label}</span></div><div className="report-actions"><button className="save-report" onClick={saveReport} disabled={exportingReport}><Icon name="download" /> {exportingReport ? "엑셀 생성 중…" : "엑셀 보고서 다운로드"}</button>{reportError && <span role="alert">{reportError}</span>}</div></div>
           <div className="result-disclaimer">AI가 발견한 ‘부적합 가능성’과 수정 권고입니다. 편집자가 공식 원문과 대조하여 최종 판단해 주세요.</div>
           <div className={`summary-grid textbook-summary ${reviewScope}`}>
             <article className="score-card"><span>종합 적합도</span><strong>{score}<small>점</small></strong><p><i style={{ width: `${score}%` }} /></p><em>검토가 필요한 항목이 {reviewItems.length}개 있습니다.</em></article>
