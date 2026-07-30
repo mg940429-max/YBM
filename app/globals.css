@@ -442,7 +442,12 @@ footer>.ybm-logo .ybm-symbol .blue { background:#fff; }
 .review-workarea .card-title h2 { font-size:16px; }
 .review-workarea .card-title p { font-size:9px; }
 .notice-strip { margin:-42px auto 54px; }
-footer>.ybm-logo { background:#fff; }
+footer>.ybm-logo { background:var(--navy); border-radius:0; }
+footer>.ybm-logo img {
+  filter:grayscale(1) invert(1) contrast(500%);
+  mix-blend-mode:screen;
+  transform:scale(1.01);
+}
 
 @media (max-width:960px) {
   .review-workspace { grid-template-columns:1fr; }
