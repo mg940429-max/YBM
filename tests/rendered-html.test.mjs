@@ -12,17 +12,17 @@ async function render() {
   );
 }
 
-test("수학 문제 검수 앱의 초기 화면을 렌더링한다", async () => {
+test("YBM 교과서 심사 지원 앱의 초기 화면을 렌더링한다", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
   const html = await response.text();
   assert.match(html, /<html[^>]*lang="ko"/i);
-  assert.match(html, /<title>수학도구 AI/);
-  assert.match(html, /수학 문제 검수/);
+  assert.match(html, /<title>YBM 교과서 심사 지원 AI/);
+  assert.match(html, /교과서 사전 점검/);
   assert.match(html, /2022 개정 교육과정/);
-  assert.match(html, /API 연결 확인 중/);
-  assert.match(html, /GPT 수학 정밀 검증/);
+  assert.match(html, /확인 중/);
+  assert.match(html, /검정 교육과정 적합성/);
   assert.match(html, /PDF 나누기/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/);
 });

@@ -3,8 +3,8 @@ import { headers } from "next/headers";
 import "katex/dist/katex.min.css";
 import "./globals.css";
 
-const title = "수학도구 AI | 수학 문제 검수와 PDF 나누기";
-const description = "2022 개정 교육과정 기반 수학 문제 검수와 안전한 브라우저 PDF 분할을 한곳에서 이용하세요.";
+const title = "YBM 교과서 심사 지원 AI";
+const description = "교정·교열, 수학적 정확성, 2022 개정 교육과정과 검정 심사 기준 적합성을 페이지별로 사전 점검합니다.";
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
@@ -15,7 +15,7 @@ export async function generateMetadata(): Promise<Metadata> {
     title,
     description,
     icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
-    openGraph: { title, description, type: "website", images: [{ url: `${origin}/og-suite.png`, width: 1736, height: 909, alt: "수학도구 AI" }] },
+    openGraph: { title, description, type: "website", images: [{ url: `${origin}/og-suite.png`, width: 1736, height: 909, alt: "YBM 교과서 심사 지원 AI" }] },
     twitter: { card: "summary_large_image", title, description, images: [`${origin}/og-suite.png`] },
   };
 }

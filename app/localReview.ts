@@ -1,4 +1,4 @@
-export type ReviewType = "curriculum" | "style" | "math" | "scope";
+export type ReviewType = "screening" | "curriculum" | "style" | "math" | "scope";
 
 export type ReviewItem = {
   id: number;
@@ -9,6 +9,8 @@ export type ReviewItem = {
   before: string;
   after: string;
   standard?: string;
+  judgment?: "부적합 가능" | "검토 필요" | "수정 권고";
+  referenceUrl?: string;
   format?: "text" | "latex";
 };
 
