@@ -2,7 +2,6 @@
 
 import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import katex from "katex";
-import Image from "next/image";
 import PdfSplitter from "./PdfSplitter";
 import { type ReviewItem, type ReviewType } from "./localReview";
 
@@ -41,7 +40,7 @@ function Icon({ name }: { name: string }) {
 function YbmLogo() {
   return (
     <span className="ybm-logo" aria-label="YBM">
-      <Image src="/ybm-logo.png" width={148} height={66} alt="YBM" priority />
+      <img src="/ybm-logo.png" width="148" height="66" alt="YBM" />
     </span>
   );
 }
@@ -286,7 +285,7 @@ export default function Home() {
     <main>
       <header className="topbar">
         <button className="brand brand-button ybm-brand" onClick={() => setTool("review")}>
-          <YbmLogo /><span className="brand-divider" /><span>교과서 심사 지원 AI</span>
+          <YbmLogo /><span className="brand-divider" /><span>교과서 AI 모의 심사</span>
           <i>{aiConfigured === null ? "확인 중" : aiConfigured ? "AI 연결" : "API 필요"}</i>
         </button>
         <nav className="tool-nav">
@@ -301,7 +300,7 @@ export default function Home() {
           <section className="hero textbook-hero" id="top">
             <div className="hero-kicker">YBM TEXTBOOK QUALITY WORKSPACE</div>
             <div className="hero-badge"><Icon name="shield" /> 2022 개정 교육과정 기반 사전 점검</div>
-            <h1>교과서 개발의 마지막 확인,<br /><em>심사 기준까지 정확하게</em></h1>
+            <h1>교과서 AI 모의 심사</h1>
             <p>교정·교열 또는 교육과정 적합성을 선택해 페이지별 검토 결과와 수정안을 확인하세요.</p>
             <div className="proof-row">
               <span><Icon name="check" /> NCIC 공식 교육과정 참조</span>
