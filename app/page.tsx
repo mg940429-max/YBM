@@ -431,7 +431,7 @@ export default function Home() {
                 <div className="orbit" style={{ background: `conic-gradient(#0757a5 ${progress}%, #e8edf5 0)` }}><span>{progress}%</span></div>
                 <p className="section-label">AI 모의 심사 진행 중</p>
                 <h2>{subject} 교과서를 심사 기준에 맞춰 살펴보고 있어요</h2>
-                <p>{progress < 25 ? "문서에서 본문, 수식과 편집 요소를 읽는 중입니다." : progress < 50 ? "문제·풀이·정답의 수학 오류를 1차 분석하고 있습니다." : progress < 72 ? "각 계산과 변수 대입을 독립적으로 다시 검산하고 있습니다." : progress < 88 ? `${grade} 교육과정과 검정 심사 기준을 비교하고 있습니다.` : "세 분석 결과를 병합하고 중복 항목을 정리하고 있습니다."}</p>
+                <p>{progress < 25 ? "문서에서 본문, 수식과 편집 요소를 읽는 중입니다." : progress < 50 ? "문제·풀이·정답의 수학 오류를 1차 분석하고 있습니다." : progress < 72 ? "모든 문항의 조건·개념·논리·표현·정답을 독립적으로 다시 검산하고 있습니다." : progress < 88 ? `${grade} 교육과정과 검정 심사 기준을 비교하고 있습니다.` : "세 분석 결과를 병합하고 중복 항목을 정리하고 있습니다."}</p>
                 <div className="analysis-track"><span style={{ width: `${progress}%` }} /></div>
                 <div className="analysis-checks">
                   {reviewTypes.map((type, index) => <span className={progress > (index + 1) * (70 / reviewTypes.length) ? "done" : ""} key={type}><Icon name="check" /> {typeMeta[type].label}</span>)}

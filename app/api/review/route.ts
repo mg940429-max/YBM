@@ -27,12 +27,12 @@ const PASS_CONFIG: Record<ReviewPass, { label: string; types: string[]; instruct
   proofreading: {
     label: "수학 오류 1차 분석 및 교정·교열",
     types: ["math", "style"],
-    instruction: "이번 요청에서는 math와 style만 분석하세요. 모든 문제·풀이·정답을 직접 계산하고 서로 대조하며, screening, curriculum, scope 유형은 생성하지 마세요.",
+    instruction: "이번 요청에서는 math와 style만 분석하세요. 문항마다 수학 영역과 핵심 개념을 먼저 파악하고 문제·풀이·정답을 독립적으로 해결해 서로 대조하세요. screening, curriculum, scope 유형은 생성하지 마세요.",
   },
   mathVerification: {
     label: "수학 오류 2차 검산",
     types: ["math"],
-    instruction: "이번 요청에서는 math만 분석하세요. 1차 결과를 정답으로 간주하지 말고 원문의 모든 문제·풀이·정답을 처음부터 독립적으로 재계산하여, 1차에서 놓친 오류와 1차 오류의 타당성을 모두 확인하세요.",
+    instruction: "이번 요청에서는 math만 분석하세요. 다른 분석 결과를 보지 않은 독립 검산자처럼 원문의 모든 문제·풀이·정답을 처음부터 새로 해결하여 누락된 오류를 찾으세요.",
   },
   screening: {
     label: "검정 교육과정 적합성",
@@ -199,11 +199,8 @@ export async function POST(request: Request) {
       },
     });
 
-    const runReviewPass = async (pass: ReviewPass, priorReport?: ReviewReport): Promise<ReviewReport> => {
+    const runReviewPass = async (pass: ReviewPass): Promise<ReviewReport> => {
       const config = PASS_CONFIG[pass];
-      const priorMathItems = priorReport?.items
-        .filter((item) => item.type === "math")
-        .map(({ page, sourcePage, title, description, before, after }) => ({ page, sourcePage, title, description, before, after }));
       const passUserContent: InputContent[] = [
         ...userContent,
         {
@@ -216,12 +213,6 @@ export async function POST(request: Request) {
             `페이지 번호는 반드시 원문의 실제 페이지 인덱스 1~${totalPages} 사이로만 보고하세요.`,
             `NCIC 교육과정 원문: ${NCIC_URL}`,
             `한국과학창의재단 수학 교과용도서 검정 자료: ${KOSAC_URL}`,
-            ...(pass === "mathVerification"
-              ? [
-                  "아래 1차 수학 오류 목록은 검산 참고 자료일 뿐이며 누락되거나 잘못 판단되었을 수 있습니다.",
-                  `1차 수학 오류 목록: ${JSON.stringify(priorMathItems ?? [])}`,
-                ]
-              : []),
           ].join("\n"),
         },
       ];
@@ -245,14 +236,24 @@ export async function POST(request: Request) {
 - ${config.label} 전문 분석이다.
 - ${config.instruction}
 - 다른 분석 분야는 별도의 전문 분석 요청에서 처리되므로 이번 결과에 섞지 않는다.
+${pass !== "screening" ? `
+<범용 수학 오류 점검 절차>
+- 특정 예시나 단원에 우선순위를 두지 말고, 선택 학년·과목에 포함된 모든 수학 영역을 동일한 엄밀성으로 확인한다.
+- 각 문항의 수학 영역, 핵심 개념, 주어진 조건, 구할 것을 먼저 식별한 뒤 원문 풀이와 독립적인 정답을 만든다.
+- 문제 조건이 답의 존재성과 유일성을 보장하는지, 빠진 조건·불필요한 조건·서로 모순되는 조건이 없는지 확인한다.
+- 풀이의 모든 식·명제·추론을 단계별로 검증하고 정의, 성질, 정리와 연산 법칙이 올바르게 적용되었는지 확인한다.
+- 독립 풀이 결과를 문제의 정답, 해설, 선택지와 대조하고 역산·대입·반례·극단값 등 적절한 다른 방법으로 한 번 더 확인한다.
+- 식, 문장, 표, 그래프, 좌표, 도형, 그림, 단위 등 서로 다른 표현이 같은 수학적 정보를 나타내는지 교차 확인한다.
+- 계산 결과뿐 아니라 정의역과 범위, 해의 개수, 경계·특수한 경우, 근삿값과 정확값, 증명의 전제와 결론까지 확인한다.
+- 원문에서 읽을 수 없는 정보는 추측해 오류로 만들지 말고 검토 필요로 분류한다.
+` : ""}
 ${pass === "mathVerification" ? `
 <2차 수학 검산 절차>
-- 각 문항의 조건, 문제, 풀이, 정답을 한 묶음으로 연결하고 원문 순서대로 확인한다.
-- 계산식의 각 등호를 독립 계산하고, 좌변과 우변이 실제로 같은지 확인한다.
-- 변수의 정의와 마지막 대입을 역추적하여 분자·분모, 계수, 부호, 지수, 단위가 뒤바뀌거나 누락되지 않았는지 확인한다.
-- 순환소수와 분수 변환, 비와 비율, 방정식의 해, 도형의 조건, 그래프 좌표를 결과에 다시 대입해 검산한다.
-- 정답만 맞더라도 중간 풀이에 성립하지 않는 등식이나 논리 비약이 있으면 오류로 보고한다.
-- 1차 목록에 없는 오류도 반드시 새로 보고하고, 1차 목록과 같은 오류를 확인한 경우에도 정확한 원문과 수정안을 반환한다.
+- 1차 분석과 독립된 두 번째 검토이므로 어떤 오류가 이미 발견되었을 것이라고 가정하지 않는다.
+- 원문 순서대로 모든 문항을 다시 풀고, 단순 계산 확인에 그치지 말고 조건·개념·논리·표현·정답 전체를 검산한다.
+- 한 방법으로 맞아 보이는 경우에도 가능한 다른 풀이, 역산, 대입 또는 반례 검토 중 적절한 방법을 선택해 교차 검증한다.
+- 정답이 맞더라도 중간 과정에 성립하지 않는 식이나 명제, 논리 비약이 있으면 오류로 보고한다.
+- 발견한 모든 오류를 반환한다. 1차 결과와의 중복 여부는 서버 병합 단계에서 처리한다.
 ` : ""}
 
 <핵심 원칙>
@@ -315,7 +316,7 @@ ${pass === "mathVerification" ? `
     };
 
     const proofreadingReport = await runReviewPass("proofreading");
-    const mathVerificationReport = await runReviewPass("mathVerification", proofreadingReport);
+    const mathVerificationReport = await runReviewPass("mathVerification");
     const screeningReport = await runReviewPass("screening");
     const reports = [proofreadingReport, mathVerificationReport, screeningReport];
     const items = mergeAndDedupeItems(reports, totalPages);
