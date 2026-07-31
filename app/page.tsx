@@ -13,7 +13,6 @@ const MAX_SOURCE_BYTES = MAX_SOURCE_MB * 1_000_000;
 const MAX_SOURCE_PAGES = 100;
 
 const subjects = ["수학", "영어", "체육", "음악", "보건", "한문", "정보"] as const;
-type ReviewScope = "proofreading" | "screening";
 
 const gradeGroups = [
   { label: "초등", grades: ["1학년", "2학년", "3학년", "4학년", "5학년", "6학년"] },
@@ -21,10 +20,9 @@ const gradeGroups = [
   { label: "고등", grades: ["공통수학 1", "공통수학 2", "대수", "미적분Ⅰ", "확률과 통계"] },
 ];
 
-const scopeMeta: Record<ReviewScope, { label: string; description: string }> = {
-  proofreading: { label: "교정·교열", description: "수학적 오류, 표기, 문장과 내부 편집 기준을 확인합니다." },
-  screening: { label: "교육과정 적합성", description: "2022 개정 교육과정과 검정 심사 기준의 부적합 가능성을 확인합니다." },
-};
+const UNIFIED_REVIEW_LABEL = "AI 모의 심사";
+const UNIFIED_REVIEW_DESCRIPTION = "교정·교열, 수학적 정확성, 2022 개정 교육과정, 학년 범위와 검정 심사 기준을 한 번에 확인합니다.";
+const reviewTypes: ReviewType[] = ["math", "style", "screening", "curriculum", "scope"];
 
 const typeMeta: Record<ReviewType, { label: string; short: string; color: string; group: string }> = {
   screening: { label: "검정 심사 적합성", short: "검정", color: "navy", group: "교육과정 적합성" },
@@ -121,7 +119,6 @@ export default function Home() {
   const dragDepthRef = useRef(0);
   const [tool, setTool] = useState<"review" | "split">("review");
   const [subject, setSubject] = useState<(typeof subjects)[number]>("수학");
-  const [reviewScope, setReviewScope] = useState<ReviewScope>("proofreading");
   const [grade, setGrade] = useState("초등 6학년");
   const [sourceFile, setSourceFile] = useState<File | null>(null);
   const [guideFile, setGuideFile] = useState<File | null>(null);
@@ -139,9 +136,6 @@ export default function Home() {
   const [exportingReport, setExportingReport] = useState(false);
   const [reportError, setReportError] = useState("");
   const [aiConfigured, setAiConfigured] = useState<boolean | null>(null);
-  const reviewTypes: ReviewType[] = reviewScope === "proofreading"
-    ? ["math", "style"]
-    : ["screening", "curriculum", "scope"];
 
   useEffect(() => () => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -258,15 +252,14 @@ export default function Home() {
       form.append("file", sourceFile);
       form.append("subject", subject);
       form.append("grade", grade);
-      form.append("reviewScope", reviewScope);
       form.append("totalPages", String(sourcePages));
       if (guideFile) form.append("guide", guideFile);
       const response = await fetch("/api/review", { method: "POST", body: form });
       const payload = await response.json() as { error?: string; score?: number; summary?: string; items?: ReviewItem[] };
-      if (!response.ok) throw new Error(payload.error || "AI 교과서 사전 점검 요청에 실패했습니다.");
+      if (!response.ok) throw new Error(payload.error || "AI 모의 심사 요청에 실패했습니다.");
       const result = {
         score: Math.max(0, Math.min(100, Number(payload.score) || 0)),
-        summary: payload.summary || "AI 교과서 사전 점검이 완료되었습니다.",
+        summary: payload.summary || "AI 모의 심사가 완료되었습니다.",
         items: Array.isArray(payload.items) ? payload.items : [],
       };
       setProgress(100);
@@ -319,7 +312,7 @@ export default function Home() {
       [{ value: "YBM 교과서 AI 모의 심사 결과 보고서", columnSpan: 6, fontSize: 18, fontWeight: "bold", textColor: "#FFFFFF", backgroundColor: navy, align: "center", alignVertical: "center", height: 38 }, null, null, null, null, null],
       [null, null, null, null, null, null],
       [labelCell("과목"), valueCell(subject), labelCell("대상 학년"), valueCell(grade), labelCell("검수일"), { value: today, type: Date, format: "yyyy-mm-dd", borderColor: line, borderStyle: "thin" }],
-      [labelCell("검수 범위"), { ...valueCell(scopeMeta[reviewScope].label), columnSpan: 3 }, null, null, labelCell("총 페이지"), valueCell(sourcePages)],
+      [labelCell("검수 범위"), { ...valueCell(UNIFIED_REVIEW_LABEL), columnSpan: 3 }, null, null, labelCell("총 페이지"), valueCell(sourcePages)],
       [labelCell("원본 파일"), { ...valueCell(sourceFile?.name ?? "-"), columnSpan: 3 }, null, null, labelCell("종합 적합도"), { ...valueCell(score), type: Number, format: '0"점"', fontWeight: "bold", textColor: score >= 80 ? navy : red }],
       [null, null, null, null, null, null],
       [{ value: "검수 결과 요약", columnSpan: 6, fontWeight: "bold", textColor: "#FFFFFF", backgroundColor: red, height: 26 }, null, null, null, null, null],
@@ -389,7 +382,7 @@ export default function Home() {
           <i>{aiConfigured === null ? "확인 중" : aiConfigured ? "AI 연결" : "API 필요"}</i>
         </button>
         <nav className="tool-nav">
-          <button className={tool === "review" ? "active" : ""} onClick={() => setTool("review")}>교과서 사전 점검</button>
+          <button className={tool === "review" ? "active" : ""} onClick={() => setTool("review")}>AI 모의 심사</button>
           <button className={tool === "split" ? "active" : ""} onClick={() => setTool("split")}>PDF 나누기</button>
           <a href={NCIC_URL} target="_blank" rel="noreferrer">NCIC 교육과정 ↗</a>
         </nav>
@@ -401,7 +394,7 @@ export default function Home() {
             <div className="hero-kicker">YBM TEXTBOOK QUALITY WORKSPACE</div>
             <div className="hero-badge"><Icon name="shield" /> 2022 개정 교육과정 기반 사전 점검</div>
             <h1>교과서 AI 모의 심사</h1>
-            <p>교정·교열 또는 교육과정 적합성을 선택해 페이지별 검토 결과와 수정안을 확인하세요.</p>
+            <p>파일을 한 번만 첨부하면 교정·교열부터 교육과정 적합성까지 통합 검토합니다.</p>
             <div className="proof-row">
               <span><Icon name="check" /> NCIC 공식 교육과정 참조</span>
               <span><Icon name="check" /> 수학 문항·풀이 정밀 검증</span>
@@ -431,23 +424,12 @@ export default function Home() {
             </div>
           </section>
 
-          <section className="review-workspace" aria-labelledby="review-mode-title">
-            <aside className="review-mode-panel">
-              <span>STEP 02</span>
-              <h2 id="review-mode-title">점검 메뉴</h2>
-              <nav aria-label="점검 영역">
-                {(Object.keys(scopeMeta) as ReviewScope[]).map((scope, index) => <button type="button" key={scope} className={reviewScope === scope ? "active" : ""} onClick={() => setReviewScope(scope)}>
-                  <b>{String(index + 1).padStart(2, "0")}</b><div><strong>{scopeMeta[scope].label}</strong><small>{scopeMeta[scope].description}</small></div><i>→</i>
-                </button>)}
-              </nav>
-              <p>두 점검은 기준이 달라 각각 실행해야 더 정확한 결과를 얻을 수 있습니다.</p>
-            </aside>
-
+          <section className="review-workspace" aria-label="AI 모의 심사 설정">
             <section className="setup-shell review-workarea" id="workflow">
             {stage === "analyzing" ? (
               <div className="analyzing-card">
                 <div className="orbit" style={{ background: `conic-gradient(#0757a5 ${progress}%, #e8edf5 0)` }}><span>{progress}%</span></div>
-                <p className="section-label">AI 교과서 사전 점검 진행 중</p>
+                <p className="section-label">AI 모의 심사 진행 중</p>
                 <h2>{subject} 교과서를 심사 기준에 맞춰 살펴보고 있어요</h2>
                 <p>{progress < 35 ? "문서에서 본문, 수식과 편집 요소를 읽는 중입니다." : progress < 70 ? `${grade} 교육과정과 성취기준을 비교하고 있습니다.` : "부적합 가능성을 분류하고 수정안을 정리하고 있습니다."}</p>
                 <div className="analysis-track"><span style={{ width: `${progress}%` }} /></div>
@@ -458,7 +440,7 @@ export default function Home() {
             ) : (
               <div className="setup-grid textbook-setup">
                 <section className="setup-card">
-                  <div className="card-title"><b>3</b><div><h2>{reviewScope === "proofreading" ? "교정 기준을 설정해 주세요" : "교육과정 기준을 설정해 주세요"}</h2><p>{scopeMeta[reviewScope].description}</p></div></div>
+                  <div className="card-title"><b>2</b><div><h2>통합 심사 기준을 설정해 주세요</h2><p>{UNIFIED_REVIEW_DESCRIPTION}</p></div></div>
                   <label className="field-label" htmlFor="grade">대상 학년·과목 <span>필수</span></label>
                   <select id="grade" value={grade} onChange={(event) => setGrade(event.target.value)}>
                     {gradeGroups.map((group) => <optgroup label={group.label} key={group.label}>{group.grades.map((item) => <option key={`${group.label}-${item}`}>{group.label === "초등" ? `초등 ${item}` : group.label === "중등" ? `중등 ${item}` : item}</option>)}</optgroup>)}
@@ -475,7 +457,7 @@ export default function Home() {
                 </section>
 
                 <section className={`setup-card upload-card ${dragging ? "dragging" : ""}`} onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
-                  <div className="card-title"><b>4</b><div><h2>점검할 교과서를 올려 주세요</h2><p>여러 페이지가 포함된 PDF와 이미지를 지원합니다.</p></div></div>
+                  <div className="card-title"><b>3</b><div><h2>심사할 교과서를 올려 주세요</h2><p>한 번의 첨부로 모든 심사 영역을 함께 분석합니다.</p></div></div>
                   <input ref={fileInput} type="file" accept="application/pdf,image/png,image/jpeg,image/webp" hidden onChange={onFileChange} />
                   {dragging && <div className="drop-capture" onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}><div><span><Icon name="upload" /></span><strong>파일을 놓아 업로드하세요</strong><small>PDF, PNG, JPG, WEBP</small></div></div>}
                   {!sourceFile ? (
@@ -486,7 +468,7 @@ export default function Home() {
                   ) : (
                     <div className="selected-file"><span className="file-preview">{sourceFile.type.startsWith("image/") ? <img src={previewUrl} alt="업로드 미리보기" /> : <Icon name="file" />}</span><div><strong>{sourceFile.name}</strong><small>{(sourceFile.size / 1024 / 1024).toFixed(2)}MB · {sourcePages ? `${sourcePages}페이지 · 분석 준비 완료` : "페이지 확인 중"}</small></div><button onClick={reset} aria-label="파일 삭제">×</button></div>
                   )}
-                  <button className="analyze-button" type="button" disabled={!sourceFile || !sourcePages || aiConfigured !== true} onClick={startAnalysis}><Icon name="search" /> {aiConfigured === null ? "API 연결 확인 중" : aiConfigured ? `${scopeMeta[reviewScope].label} 시작하기` : "API 키 연결 필요"} <Icon name="arrow" /></button>
+                  <button className="analyze-button" type="button" disabled={!sourceFile || !sourcePages || aiConfigured !== true} onClick={startAnalysis}><Icon name="search" /> {aiConfigured === null ? "API 연결 확인 중" : aiConfigured ? "AI 모의 심사 시작하기" : "API 키 연결 필요"} <Icon name="arrow" /></button>
                   {analysisError && <p className="error-banner" role="alert">{analysisError}</p>}
                   <p className="privacy-copy"><Icon name="shield" /> {aiConfigured ? "파일은 분석을 위해 OpenAI API로 암호화 전송되며 응답 저장은 비활성화됩니다." : "배포 환경의 OPENAI_API_KEY 연결 상태를 확인해 주세요."}</p>
                 </section>
@@ -498,9 +480,9 @@ export default function Home() {
         </>
       ) : (
         <section className="result-page" id="top">
-          <div className="result-top"><div><button className="back-button" onClick={reset}>← 새 점검</button><p className="section-label">사전 점검 완료</p><h1>{subject} 교과서 점검 결과</h1><span>{sourceFile?.name} · {grade} · 총 {sourcePages}페이지 · {scopeMeta[reviewScope].label}</span></div><div className="report-actions"><button className="save-report" onClick={saveReport} disabled={exportingReport}><Icon name="download" /> {exportingReport ? "엑셀 생성 중…" : "엑셀 보고서 다운로드"}</button>{reportError && <span role="alert">{reportError}</span>}</div></div>
+          <div className="result-top"><div><button className="back-button" onClick={reset}>← 새 심사</button><p className="section-label">AI 모의 심사 완료</p><h1>{subject} 교과서 심사 결과</h1><span>{sourceFile?.name} · {grade} · 총 {sourcePages}페이지 · {UNIFIED_REVIEW_LABEL}</span></div><div className="report-actions"><button className="save-report" onClick={saveReport} disabled={exportingReport}><Icon name="download" /> {exportingReport ? "엑셀 생성 중…" : "엑셀 보고서 다운로드"}</button>{reportError && <span role="alert">{reportError}</span>}</div></div>
           <div className="result-disclaimer">AI가 발견한 ‘부적합 가능성’과 수정 권고입니다. 편집자가 공식 원문과 대조하여 최종 판단해 주세요.</div>
-          <div className={`summary-grid textbook-summary ${reviewScope}`}>
+          <div className="summary-grid textbook-summary unified">
             <article className="score-card"><span>종합 적합도</span><strong>{score}<small>점</small></strong><p><i style={{ width: `${score}%` }} /></p><em>검토가 필요한 항목이 {reviewItems.length}개 있습니다.</em></article>
             {reviewTypes.map((type) => {
               const count = reviewItems.filter((item) => item.type === type).length;

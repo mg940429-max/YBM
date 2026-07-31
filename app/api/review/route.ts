@@ -18,8 +18,6 @@ const ALLOWED_GUIDE_TYPES = new Set([
   "text/plain",
   "text/markdown",
 ]);
-const ALLOWED_SCOPES = new Set(["proofreading", "screening"]);
-
 type InputContent = Record<string, unknown>;
 
 function dataUrl(file: File, bytes: ArrayBuffer) {
@@ -66,8 +64,6 @@ export async function POST(request: Request) {
     const guide = form.get("guide");
     const subject = String(form.get("subject") ?? "").trim();
     const grade = String(form.get("grade") ?? "").trim();
-    const requestedScope = String(form.get("reviewScope") ?? "proofreading").trim();
-    const reviewScope = ALLOWED_SCOPES.has(requestedScope) ? requestedScope : "proofreading";
     const requestedPages = Number(form.get("totalPages"));
     const totalPages = Number.isFinite(requestedPages) ? Math.floor(requestedPages) : 0;
 
@@ -87,10 +83,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "교과서 파일과 편집 기준 파일의 합계는 최대 50MB까지 가능합니다." }, { status: 400 });
     }
 
-    const scopeInstruction = reviewScope === "proofreading"
-      ? "교정·교열, 내부 편집 기준, 수학적 정확성만 점검한다. screening·curriculum·scope 항목은 생성하지 않는다."
-      : "검정 심사 적합성, 2022 개정 수학과 교육과정과 학년·과목 범위만 점검한다. math·style 항목은 생성하지 않는다.";
-
     const sourceBytes = await source.arrayBuffer();
     const userContent: InputContent[] = [
       source.type === "application/pdf"
@@ -102,7 +94,7 @@ export async function POST(request: Request) {
       type: "input_text",
       text: [
         `대상은 '${grade}' '${subject}' 교과서이고 원문은 총 ${totalPages}페이지입니다.`,
-        `점검 범위: ${reviewScope}. ${scopeInstruction}`,
+        "점검 범위: 통합 AI 모의 심사. screening·curriculum·scope·math·style 다섯 영역을 모두 빠짐없이 점검한다.",
         "첫 번째 파일은 교과서 원문입니다. 두 번째 파일이 있으면 YBM 내부 편집 통일 사항입니다.",
         `페이지 번호는 반드시 원문의 실제 페이지 인덱스 1~${totalPages} 사이로만 보고하세요.`,
         `NCIC 교육과정 원문: ${NCIC_URL}`,
@@ -209,7 +201,7 @@ export async function POST(request: Request) {
       : [];
     return NextResponse.json({
       score: Math.max(0, Math.min(100, Number(report.score) || 0)),
-      summary: String(report.summary ?? "AI 교과서 사전 점검이 완료되었습니다."),
+      summary: String(report.summary ?? "AI 모의 심사가 완료되었습니다."),
       items,
     });
   } catch {
