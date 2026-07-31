@@ -405,7 +405,7 @@ export default function Home() {
           <section className="flow-strip" aria-label="점검 절차">
             <div className="flow-step active"><b>01</b><span><strong>과목·범위 설정</strong><small>수학 및 점검 영역 선택</small></span></div>
             <i>→</i><div className={`flow-step ${sourceFile ? "active" : ""}`}><b>02</b><span><strong>교과서 업로드</strong><small>PDF 또는 이미지 첨부</small></span></div>
-            <i>→</i><div className={`flow-step ${stage === "analyzing" ? "active" : ""}`}><b>03</b><span><strong>AI 이중 분석</strong><small>두 전문 분석 동시 진행</small></span></div>
+            <i>→</i><div className={`flow-step ${stage === "analyzing" ? "active" : ""}`}><b>03</b><span><strong>AI 3단계 분석</strong><small>1차 분석·2차 검산·교육과정</small></span></div>
             <i>→</i><div className="flow-step"><b>04</b><span><strong>편집자 검토</strong><small>수정안 확인 및 저장</small></span></div>
           </section>
 
@@ -431,7 +431,7 @@ export default function Home() {
                 <div className="orbit" style={{ background: `conic-gradient(#0757a5 ${progress}%, #e8edf5 0)` }}><span>{progress}%</span></div>
                 <p className="section-label">AI 모의 심사 진행 중</p>
                 <h2>{subject} 교과서를 심사 기준에 맞춰 살펴보고 있어요</h2>
-                <p>{progress < 35 ? "문서에서 본문, 수식과 편집 요소를 읽는 중입니다." : progress < 75 ? "교정·교열과 교육과정 적합성을 각각 전문 분석하고 있습니다." : "두 분석 결과를 병합하고 중복 항목을 정리하고 있습니다."}</p>
+                <p>{progress < 25 ? "문서에서 본문, 수식과 편집 요소를 읽는 중입니다." : progress < 50 ? "문제·풀이·정답의 수학 오류를 1차 분석하고 있습니다." : progress < 72 ? "각 계산과 변수 대입을 독립적으로 다시 검산하고 있습니다." : progress < 88 ? `${grade} 교육과정과 검정 심사 기준을 비교하고 있습니다.` : "세 분석 결과를 병합하고 중복 항목을 정리하고 있습니다."}</p>
                 <div className="analysis-track"><span style={{ width: `${progress}%` }} /></div>
                 <div className="analysis-checks">
                   {reviewTypes.map((type, index) => <span className={progress > (index + 1) * (70 / reviewTypes.length) ? "done" : ""} key={type}><Icon name="check" /> {typeMeta[type].label}</span>)}

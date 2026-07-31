@@ -19,15 +19,20 @@ const ALLOWED_GUIDE_TYPES = new Set([
   "text/markdown",
 ]);
 type InputContent = Record<string, unknown>;
-type ReviewPass = "proofreading" | "screening";
+type ReviewPass = "proofreading" | "mathVerification" | "screening";
 type ReviewItem = Record<string, unknown>;
 type ReviewReport = { score: number; summary: string; items: ReviewItem[] };
 
 const PASS_CONFIG: Record<ReviewPass, { label: string; types: string[]; instruction: string }> = {
   proofreading: {
-    label: "교정·교열 및 수학 오류",
+    label: "수학 오류 1차 분석 및 교정·교열",
     types: ["math", "style"],
-    instruction: "이번 요청에서는 math와 style만 분석하고 보고하세요. screening, curriculum, scope 유형은 생성하지 마세요.",
+    instruction: "이번 요청에서는 math와 style만 분석하세요. 모든 문제·풀이·정답을 직접 계산하고 서로 대조하며, screening, curriculum, scope 유형은 생성하지 마세요.",
+  },
+  mathVerification: {
+    label: "수학 오류 2차 검산",
+    types: ["math"],
+    instruction: "이번 요청에서는 math만 분석하세요. 1차 결과를 정답으로 간주하지 말고 원문의 모든 문제·풀이·정답을 처음부터 독립적으로 재계산하여, 1차에서 놓친 오류와 1차 오류의 타당성을 모두 확인하세요.",
   },
   screening: {
     label: "검정 교육과정 적합성",
@@ -194,8 +199,11 @@ export async function POST(request: Request) {
       },
     });
 
-    const runReviewPass = async (pass: ReviewPass): Promise<ReviewReport> => {
+    const runReviewPass = async (pass: ReviewPass, priorReport?: ReviewReport): Promise<ReviewReport> => {
       const config = PASS_CONFIG[pass];
+      const priorMathItems = priorReport?.items
+        .filter((item) => item.type === "math")
+        .map(({ page, sourcePage, title, description, before, after }) => ({ page, sourcePage, title, description, before, after }));
       const passUserContent: InputContent[] = [
         ...userContent,
         {
@@ -208,6 +216,12 @@ export async function POST(request: Request) {
             `페이지 번호는 반드시 원문의 실제 페이지 인덱스 1~${totalPages} 사이로만 보고하세요.`,
             `NCIC 교육과정 원문: ${NCIC_URL}`,
             `한국과학창의재단 수학 교과용도서 검정 자료: ${KOSAC_URL}`,
+            ...(pass === "mathVerification"
+              ? [
+                  "아래 1차 수학 오류 목록은 검산 참고 자료일 뿐이며 누락되거나 잘못 판단되었을 수 있습니다.",
+                  `1차 수학 오류 목록: ${JSON.stringify(priorMathItems ?? [])}`,
+                ]
+              : []),
           ].join("\n"),
         },
       ];
@@ -219,7 +233,7 @@ export async function POST(request: Request) {
           model: process.env.OPENAI_MODEL || "gpt-5.6-terra",
           reasoning: { effort: "high" },
           store: false,
-          tools: [{ type: "web_search" }],
+          ...(pass === "screening" ? { tools: [{ type: "web_search" }] } : {}),
           input: [
             {
               role: "system",
@@ -231,6 +245,15 @@ export async function POST(request: Request) {
 - ${config.label} 전문 분석이다.
 - ${config.instruction}
 - 다른 분석 분야는 별도의 전문 분석 요청에서 처리되므로 이번 결과에 섞지 않는다.
+${pass === "mathVerification" ? `
+<2차 수학 검산 절차>
+- 각 문항의 조건, 문제, 풀이, 정답을 한 묶음으로 연결하고 원문 순서대로 확인한다.
+- 계산식의 각 등호를 독립 계산하고, 좌변과 우변이 실제로 같은지 확인한다.
+- 변수의 정의와 마지막 대입을 역추적하여 분자·분모, 계수, 부호, 지수, 단위가 뒤바뀌거나 누락되지 않았는지 확인한다.
+- 순환소수와 분수 변환, 비와 비율, 방정식의 해, 도형의 조건, 그래프 좌표를 결과에 다시 대입해 검산한다.
+- 정답만 맞더라도 중간 풀이에 성립하지 않는 등식이나 논리 비약이 있으면 오류로 보고한다.
+- 1차 목록에 없는 오류도 반드시 새로 보고하고, 1차 목록과 같은 오류를 확인한 경우에도 정확한 원문과 수정안을 반환한다.
+` : ""}
 
 <핵심 원칙>
 - 이 결과는 공식 합격·불합격 판정이 아니라 '사전 점검'이다. 판단 표현은 부적합 가능, 검토 필요, 수정 권고 중 하나만 사용한다.
@@ -291,19 +314,19 @@ export async function POST(request: Request) {
       };
     };
 
-    const [proofreadingReport, screeningReport] = await Promise.all([
-      runReviewPass("proofreading"),
-      runReviewPass("screening"),
-    ]);
-    const reports = [proofreadingReport, screeningReport];
+    const proofreadingReport = await runReviewPass("proofreading");
+    const mathVerificationReport = await runReviewPass("mathVerification", proofreadingReport);
+    const screeningReport = await runReviewPass("screening");
+    const reports = [proofreadingReport, mathVerificationReport, screeningReport];
     const items = mergeAndDedupeItems(reports, totalPages);
 
     return NextResponse.json({
       score: Math.round(reports.reduce((sum, report) => sum + report.score, 0) / reports.length),
       summary: [
-        `교정·교열 분석: ${proofreadingReport.summary}`,
+        `수학 오류 1차 분석·교정교열: ${proofreadingReport.summary}`,
+        `수학 오류 2차 검산: ${mathVerificationReport.summary}`,
         `교육과정 적합성 분석: ${screeningReport.summary}`,
-        "두 전문 분석 결과를 병합하고 중복 항목을 제거했습니다. 본 결과는 공식 최종 판정이 아닙니다.",
+        "세 단계 전문 분석 결과를 병합하고 중복 항목을 제거했습니다. 본 결과는 공식 최종 판정이 아닙니다.",
       ].join("\n"),
       items,
     });
