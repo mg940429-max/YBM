@@ -13,6 +13,8 @@ export type ReviewItem = {
   judgment?: "부적합 가능" | "검토 필요" | "수정 권고";
   referenceUrl?: string;
   format?: "text" | "latex";
+  verificationMethod?: "ai" | "deterministic";
+  verificationEvidence?: string;
 };
 
 type ProgressHandler = (value: number) => void;

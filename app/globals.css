@@ -397,6 +397,25 @@ footer>.ybm-logo .ybm-symbol .blue { background:#fff; }
   .textbook-setup { grid-template-columns:1fr; }
   .analysis-checks { grid-template-columns:1fr 1fr; }
 }
+
+.audit-panel { margin:14px 0 20px; padding:16px; border:1px solid #cbdceb; border-radius:10px; background:#fff; box-shadow:0 10px 28px rgba(20,57,94,.05); }
+.audit-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+.audit-heading>div { display:flex; flex-direction:column; gap:4px; }
+.audit-heading span { color:#7d8da0; font-size:8px; font-weight:900; letter-spacing:.09em; }
+.audit-heading strong { color:var(--navy); font-size:13px; }
+.audit-heading em { padding:6px 9px; border-radius:6px; background:#eaf3fb; color:var(--blue); font-size:10px; font-style:normal; font-weight:900; }
+.audit-grid { margin-top:13px; display:grid; grid-template-columns:repeat(6,1fr); gap:7px; }
+.audit-grid>div { min-width:0; padding:10px; border:1px solid #e0e8f0; border-radius:7px; background:#f8fafc; }
+.audit-grid span { display:block; overflow:hidden; color:#75869a; font-size:8px; white-space:nowrap; text-overflow:ellipsis; }
+.audit-grid strong { margin-top:5px; display:block; color:#183f67; font-size:17px; }
+.audit-grid small { margin-left:2px; color:#8d9cac; font-size:8px; }
+.audit-panel>p { margin:11px 0 0; padding-top:10px; border-top:1px solid #e4eaf0; color:#b25f17; font-size:9px; }
+.verification-evidence { margin:9px 0; padding:8px 10px; border-radius:6px; background:#f2f6fa; color:#516b84; font-size:9px; line-height:1.55; }
+.verification-evidence.deterministic { border:1px solid #b9ddc8; background:#eef9f2; color:#23653e; font-weight:750; }
+.standard-link.static { cursor:default; text-decoration:none; }
+
+@media (max-width:900px) { .audit-grid { grid-template-columns:repeat(3,1fr); } }
+@media (max-width:520px) { .audit-grid { grid-template-columns:repeat(2,1fr); } .audit-heading { align-items:flex-start; } }
 @media (max-width:480px) {
   .ybm-symbol { width:54px; transform:scale(.86); transform-origin:left center; }
   .subject-grid { grid-template-columns:repeat(3,1fr); }

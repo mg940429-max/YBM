@@ -46,6 +46,15 @@ async function readApiPayload<T>(response: Response): Promise<T> {
 const UNIFIED_REVIEW_DESCRIPTION = "교정·교열, 수학적 정확성, 2022 개정 교육과정, 학년 범위와 검정 심사 기준을 한 번에 확인합니다.";
 const reviewTypes: ReviewType[] = ["math", "style", "screening", "curriculum", "scope"];
 
+type AuditSummary = {
+  totalPages: number;
+  fullyReviewedPages: number;
+  unreadablePages: number[];
+  deterministicChecks: number;
+  protectedItems: number;
+  stages: Array<{ name: string; reviewedPages: number; unreadablePages: number[] }>;
+};
+
 const typeMeta: Record<ReviewType, { label: string; short: string; color: string; group: string }> = {
   screening: { label: "검정 심사 적합성", short: "검정", color: "navy", group: "교육과정 적합성" },
   curriculum: { label: "2022 수학과 교육과정", short: "교육과정", color: "blue", group: "교육과정 적합성" },
@@ -154,6 +163,7 @@ export default function Home() {
   const [reviewItems, setReviewItems] = useState<ReviewItem[]>([]);
   const [score, setScore] = useState(100);
   const [analysisSummary, setAnalysisSummary] = useState("");
+  const [auditSummary, setAuditSummary] = useState<AuditSummary | null>(null);
   const [analysisError, setAnalysisError] = useState("");
   const [exportingReport, setExportingReport] = useState(false);
   const [reportError, setReportError] = useState("");
@@ -217,7 +227,7 @@ export default function Home() {
     setSourceFile(file);
     setPreviewUrl(nextPreviewUrl);
     setSourcePages(file.type.startsWith("image/") ? 1 : 0);
-    setStage("setup"); setProgress(0); setReviewItems([]); setAnalysisError(""); setAnalysisSummary("");
+    setStage("setup"); setProgress(0); setReviewItems([]); setAnalysisError(""); setAnalysisSummary(""); setAuditSummary(null);
     if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
       try {
         const pdfjs = await import("pdfjs-dist");
@@ -277,7 +287,7 @@ export default function Home() {
       form.append("totalPages", String(sourcePages));
       if (guideFile) form.append("guide", guideFile);
       const response = await fetch("/api/review", { method: "POST", body: form });
-      const payload = await readApiPayload<{ error?: string; score?: number; summary?: string; items?: ReviewItem[] }>(response);
+      const payload = await readApiPayload<{ error?: string; score?: number; summary?: string; items?: ReviewItem[]; audit?: AuditSummary }>(response);
       if (!response.ok) throw new Error(payload.error || "AI 모의 심사 요청에 실패했습니다.");
       const result = {
         score: Math.max(0, Math.min(100, Number(payload.score) || 0)),
@@ -287,6 +297,7 @@ export default function Home() {
       setProgress(100);
       const items = result.items.filter((item) => item.page >= 1 && item.page <= sourcePages);
       setReviewItems(items); setScore(result.score); setAnalysisSummary(result.summary);
+      setAuditSummary(payload.audit ?? null);
       setActivePage(items[0]?.page ?? 1); setActiveType("all");
       window.setTimeout(() => setStage("result"), 250);
     } catch (reason) {
@@ -301,7 +312,7 @@ export default function Home() {
     if (timerRef.current) clearInterval(timerRef.current);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setSourceFile(null); setPreviewUrl(""); setSourcePages(0); setProgress(0); setStage("setup");
-    setReviewItems([]); setAnalysisError(""); setAnalysisSummary(""); setScore(100);
+    setReviewItems([]); setAnalysisError(""); setAnalysisSummary(""); setAuditSummary(null); setScore(100);
     setReportError(""); setExportingReport(false);
     if (fileInput.current) fileInput.current.value = "";
   }
@@ -345,6 +356,13 @@ export default function Home() {
         { value: typeMeta[type].group, columnSpan: 4, textColor: "#55657A", wrap: true, borderColor: line, borderStyle: "thin" },
         null, null, null,
       ] as Cell[]),
+      ...(auditSummary ? [
+        [null, null, null, null, null, null],
+        [{ value: "검수 추적 기록", columnSpan: 6, fontWeight: "bold", textColor: navy, backgroundColor: paleBlue, height: 26 }, null, null, null, null, null],
+        [labelCell("교차 확인 페이지"), valueCell(`${auditSummary.fullyReviewedPages}/${auditSummary.totalPages}`), labelCell("계산 엔진 검증"), valueCell(auditSummary.deterministicChecks), labelCell("확정 보호 항목"), valueCell(auditSummary.protectedItems)],
+        [labelCell("판독 확인 페이지"), { ...valueCell(auditSummary.unreadablePages.join(", ") || "없음"), columnSpan: 5 }, null, null, null, null],
+        ...auditSummary.stages.map((item) => [labelCell(item.name), { ...valueCell(`${item.reviewedPages}/${auditSummary.totalPages}페이지`), columnSpan: 5 }, null, null, null, null] as Cell[]),
+      ] as SheetData : []),
       [null, null, null, null, null, null],
       [{ value: "AI 분석 요약", columnSpan: 6, fontWeight: "bold", textColor: navy, backgroundColor: paleBlue, height: 26 }, null, null, null, null, null],
       [{ value: analysisSummary || "별도 요약이 없습니다.", columnSpan: 6, wrap: true, alignVertical: "top", height: 70, borderColor: line, borderStyle: "thin" }, null, null, null, null, null],
@@ -353,7 +371,7 @@ export default function Home() {
     ];
 
     const detailData: SheetData = [
-      ["PDF 페이지", "지면 표기", "영역", "세부 항목", "판단", "제목", "설명", "참조 기준", "BEFORE", "AFTER", "출처"].map((value) => headerCell(value)),
+      ["PDF 페이지", "지면 표기", "영역", "세부 항목", "판단", "제목", "설명", "검증 방식", "검증 근거", "참조 기준", "BEFORE", "AFTER", "출처"].map((value) => headerCell(value)),
       ...reviewItems.map((item) => [
         { value: item.page, type: Number, align: "center", borderColor: line, borderStyle: "thin" },
         { ...valueCell(visibleSourcePage(item.sourcePage)), align: "center" },
@@ -362,6 +380,8 @@ export default function Home() {
         { ...valueCell(item.judgment ?? "검토 필요"), fontWeight: "bold", textColor: red, align: "center" },
         valueCell(item.title),
         valueCell(item.description),
+        valueCell(item.verificationMethod === "deterministic" ? "계산 엔진" : "AI 교차 검증"),
+        valueCell(item.verificationEvidence ?? ""),
         valueCell(item.standard ?? ""),
         { ...valueCell(item.before), backgroundColor: paleRed, textColor: "#A51D2D" },
         { ...valueCell(item.after), backgroundColor: paleBlue, textColor: navy },
@@ -379,7 +399,7 @@ export default function Home() {
         {
           data: detailData, sheet: "상세 결과", showGridLines: false, stickyRowsCount: 1,
           zoomScale: 85, orientation: "landscape",
-          columns: [{ width: 11 }, { width: 11 }, { width: 18 }, { width: 22 }, { width: 13 }, { width: 28 }, { width: 48 }, { width: 32 }, { width: 38 }, { width: 38 }, { width: 36 }],
+          columns: [{ width: 11 }, { width: 11 }, { width: 18 }, { width: 22 }, { width: 13 }, { width: 28 }, { width: 48 }, { width: 16 }, { width: 34 }, { width: 32 }, { width: 38 }, { width: 38 }, { width: 36 }],
         },
       ]).toBlob();
       const url = URL.createObjectURL(blob);
@@ -427,7 +447,7 @@ export default function Home() {
           <section className="flow-strip" aria-label="점검 절차">
             <div className="flow-step active"><b>01</b><span><strong>과목·범위 설정</strong><small>수학 및 점검 영역 선택</small></span></div>
             <i>→</i><div className={`flow-step ${sourceFile ? "active" : ""}`}><b>02</b><span><strong>교과서 업로드</strong><small>PDF 또는 이미지 첨부</small></span></div>
-            <i>→</i><div className={`flow-step ${stage === "analyzing" ? "active" : ""}`}><b>03</b><span><strong>AI 4단계 분석</strong><small>1차·2차·교육과정·최종 판정</small></span></div>
+            <i>→</i><div className={`flow-step ${stage === "analyzing" ? "active" : ""}`}><b>03</b><span><strong>AI 정밀 분석</strong><small>수학 2회·교육과정 2회·계산 검증</small></span></div>
             <i>→</i><div className="flow-step"><b>04</b><span><strong>편집자 검토</strong><small>수정안 확인 및 저장</small></span></div>
           </section>
 
@@ -453,7 +473,7 @@ export default function Home() {
                 <div className="orbit" style={{ background: `conic-gradient(#0757a5 ${progress}%, #e8edf5 0)` }}><span>{progress}%</span></div>
                 <p className="section-label">AI 모의 심사 진행 중</p>
                 <h2>{subject} 교과서를 심사 기준에 맞춰 살펴보고 있어요</h2>
-                <p>{progress < 22 ? "문서에서 본문, 수식과 편집 요소를 읽는 중입니다." : progress < 43 ? "문제·풀이·정답의 수학 오류를 1차 분석하고 있습니다." : progress < 62 ? "모든 문항을 독립적으로 다시 검산하고 있습니다." : progress < 80 ? `${grade} 내용을 2022 개정 교육과정과 비교하고 있습니다.` : "후보별 승인·기각, 중복 제거와 응답 안전성 검사를 진행하고 있습니다."}</p>
+                <p>{progress < 20 ? "문서에서 본문, 수식과 편집 요소를 읽는 중입니다." : progress < 40 ? "수학 오류를 1차 분석하고 독립적으로 다시 검산하고 있습니다." : progress < 62 ? `${grade} 내용을 2022 개정 교육과정과 두 번 대조하고 있습니다.` : progress < 80 ? "추출된 수치 등식을 정확한 유리수 연산으로 검증하고 있습니다." : "확정 오류 보호, 후보별 최종 판정과 중복 제거를 진행하고 있습니다."}</p>
                 <div className="analysis-track"><span style={{ width: `${progress}%` }} /></div>
                 <div className="analysis-checks">
                   {reviewTypes.map((type, index) => <span className={progress > (index + 1) * (70 / reviewTypes.length) ? "done" : ""} key={type}><Icon name="check" /> {typeMeta[type].label}</span>)}
@@ -512,6 +532,15 @@ export default function Home() {
             })}
           </div>
           {analysisSummary && <RichMathText value={analysisSummary} className="result-summary" />}
+          {auditSummary && <section className="audit-panel" aria-label="전수 검수 기록">
+            <div className="audit-heading"><div><span>검수 추적 기록</span><strong>{auditSummary.fullyReviewedPages === auditSummary.totalPages ? "전체 페이지 교차 확인 완료" : "일부 페이지 추가 확인 필요"}</strong></div><em>{auditSummary.fullyReviewedPages}/{auditSummary.totalPages}페이지</em></div>
+            <div className="audit-grid">
+              {auditSummary.stages.map((item) => <div key={item.name}><span>{item.name}</span><strong>{item.reviewedPages}<small>/{auditSummary.totalPages}p</small></strong></div>)}
+              <div><span>계산 엔진 검증</span><strong>{auditSummary.deterministicChecks}<small>개 등식</small></strong></div>
+              <div><span>삭제 방지 확정 항목</span><strong>{auditSummary.protectedItems}<small>건</small></strong></div>
+            </div>
+            {auditSummary.unreadablePages.length > 0 && <p>판독 확인이 필요한 PDF 페이지: {auditSummary.unreadablePages.join(", ")}</p>}
+          </section>}
 
           <div className="review-layout">
             <aside className="page-sidebar"><div><strong>검토 페이지</strong><span>{issuePages.length}개</span></div>{issuePages.length ? issuePages.map((page) => <button key={page} className={activePage === page ? "active" : ""} onClick={() => setActivePage(page)}><span className={`page-thumb p${page}`}><i>{page}</i></span><em><strong>{page}페이지</strong><small>{reviewItems.filter((item) => item.page === page).length}개 항목</small></em></button>) : <p className="no-issue-pages">검토가 필요한 페이지가 없습니다.</p>}</aside>
@@ -520,7 +549,8 @@ export default function Home() {
               {visibleItems.length ? visibleItems.map((item) => <article className="issue-card" key={item.id}>
                 <div className="issue-title"><span className="source-page-badge">PDF {item.page}페이지{visibleSourcePage(item.sourcePage) ? ` · 지면 ${visibleSourcePage(item.sourcePage)}쪽` : ""}</span><span className={`tag ${typeMeta[item.type].color}`}>{typeMeta[item.type].label}</span><h3>{item.title}</h3><b>{item.judgment ?? "검토 필요"}</b></div>
                 <RichMathText value={item.description} />
-                {item.standard && <a href={safeReferenceUrl(item.referenceUrl)} target="_blank" rel="noreferrer" className="standard-link">참조 기준 · {item.standard} ↗</a>}
+                {item.verificationEvidence && <p className={`verification-evidence ${item.verificationMethod === "deterministic" ? "deterministic" : ""}`}><Icon name="check" /> {item.verificationMethod === "deterministic" ? "계산 엔진 확정" : "검증 근거"} · {item.verificationEvidence}</p>}
+                {item.standard && (item.referenceUrl ? <a href={safeReferenceUrl(item.referenceUrl)} target="_blank" rel="noreferrer" className="standard-link">참조 기준 · {item.standard} ↗</a> : <span className="standard-link static">검증 기준 · {item.standard}</span>)}
                 <div className={`compare ${item.format === "latex" ? "latex-compare" : ""}`}><div><span>BEFORE</span><RichMathText value={item.before} forceMath={item.format === "latex"} /></div><i>→</i><div><span>AFTER</span><RichMathText value={item.after} forceMath={item.format === "latex"} /></div></div>
               </article>) : <div className="empty-filter"><Icon name="check" /><strong>이 조건에 해당하는 항목이 없습니다.</strong><button onClick={() => setActiveType("all")}>전체 결과 보기</button></div>}
             </section>

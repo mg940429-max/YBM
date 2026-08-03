@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 import { NextResponse } from "next/server";
+import { buildDeterministicMathItems, type EquationCheck } from "./mathVerifier";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -19,9 +20,17 @@ const ALLOWED_GUIDE_TYPES = new Set([
   "text/markdown",
 ]);
 type InputContent = Record<string, unknown>;
-type ReviewPass = "proofreading" | "mathVerification" | "screening";
+type ReviewPass = "proofreading" | "mathVerification" | "screening" | "curriculumVerification";
 type ReviewItem = Record<string, unknown>;
-type ReviewReport = { score: number; summary: string; items: ReviewItem[]; curriculumBasis: "2022 개정 교육과정" };
+type ReviewReport = {
+  score: number;
+  summary: string;
+  items: ReviewItem[];
+  curriculumBasis: "2022 개정 교육과정";
+  coveragePages: number[];
+  unreadablePages: number[];
+  equationChecks: EquationCheck[];
+};
 
 const CURRICULUM_BASIS = "2022 개정 교육과정" as const;
 const ALL_REVIEW_TYPES = ["screening", "curriculum", "scope", "math", "style"];
@@ -35,6 +44,8 @@ const ITEM_TEXT_LIMITS: Record<string, number> = {
   after: 1200,
   standard: 500,
   referenceUrl: 500,
+  verificationMethod: 40,
+  verificationEvidence: 500,
 };
 
 const PASS_CONFIG: Record<ReviewPass, { label: string; types: string[]; instruction: string }> = {
@@ -52,6 +63,11 @@ const PASS_CONFIG: Record<ReviewPass, { label: string; types: string[]; instruct
     label: "검정 교육과정 적합성",
     types: ["screening", "curriculum", "scope"],
     instruction: "이번 요청에서는 screening, curriculum, scope만 분석하고 보고하세요. math와 style 유형은 생성하지 마세요.",
+  },
+  curriculumVerification: {
+    label: "교육과정 범위 2차 검산",
+    types: ["screening", "curriculum", "scope"],
+    instruction: "이번 요청에서는 다른 분석 결과를 보지 않은 독립 검토자로서 screening, curriculum, scope만 분석하세요. 선택 과정의 2022 개정 교육과정과 원문의 모든 페이지를 다시 대조하고, 실제 내용 수준이 선택 과정과 다른 문서 전체 불일치도 보고하세요. math와 style 유형은 생성하지 마세요.",
   },
 };
 
@@ -150,8 +166,38 @@ function mergeAndDedupeItems(reports: ReviewReport[], totalPages: number) {
     .map((item, index) => ({ ...item, id: index + 1 }));
 }
 
+function confirmedAcross(left: ReviewReport, right: ReviewReport) {
+  return left.items.filter((item) => right.items.some((candidate) => isDuplicateItem(item, candidate)));
+}
+
+function reportWithItems(items: ReviewItem[]): ReviewReport {
+  return {
+    score: 100,
+    summary: "서버 검증 결과",
+    items,
+    curriculumBasis: CURRICULUM_BASIS,
+    coveragePages: [],
+    unreadablePages: [],
+    equationChecks: [],
+  };
+}
+
+function intersectCoverage(reports: ReviewReport[], totalPages: number) {
+  if (!reports.length) return [];
+  return Array.from({ length: totalPages }, (_, index) => index + 1)
+    .filter((page) => reports.every((report) => report.coveragePages.includes(page)));
+}
+
 function sanitizeReport(
-  report: { score?: unknown; summary?: unknown; items?: unknown; curriculumBasis?: unknown },
+  report: {
+    score?: unknown;
+    summary?: unknown;
+    items?: unknown;
+    curriculumBasis?: unknown;
+    coveragePages?: unknown;
+    unreadablePages?: unknown;
+    equationChecks?: unknown;
+  },
   totalPages: number,
   allowedTypes: string[],
 ): ReviewReport {
@@ -188,6 +234,8 @@ function sanitizeReport(
           standard: String(item.standard ?? "").trim(),
           referenceUrl: String(item.referenceUrl ?? "").trim(),
           format,
+          verificationMethod: String(item.verificationMethod ?? "ai").trim(),
+          verificationEvidence: String(item.verificationEvidence ?? "").trim(),
         };
         for (const [field, maxLength] of Object.entries(ITEM_TEXT_LIMITS)) {
           const value = String(sanitizedItem[field] ?? "");
@@ -197,11 +245,36 @@ function sanitizeReport(
       })
     : [];
 
+  const sanitizePages = (value: unknown) => [...new Set(
+    (Array.isArray(value) ? value : [])
+      .map(Number)
+      .filter((page) => Number.isInteger(page) && page >= 1 && page <= totalPages),
+  )].sort((left, right) => left - right);
+
+  const equationChecks = Array.isArray(report.equationChecks)
+    ? report.equationChecks.flatMap((rawCheck) => {
+        if (!rawCheck || typeof rawCheck !== "object") return [];
+        const check = rawCheck as Record<string, unknown>;
+        const page = Number(check.page);
+        const expression = String(check.expression ?? "").trim();
+        if (!Number.isInteger(page) || page < 1 || page > totalPages || !expression || expression.length > 500) return [];
+        return [{
+          page,
+          sourcePage: String(check.sourcePage ?? "").trim().slice(0, 30),
+          expression,
+          context: String(check.context ?? "").trim().slice(0, 300),
+        }];
+      })
+    : [];
+
   return {
     score: Math.max(0, Math.min(100, Number(report.score) || 0)),
     summary,
     items,
     curriculumBasis: CURRICULUM_BASIS,
+    coveragePages: sanitizePages(report.coveragePages),
+    unreadablePages: sanitizePages(report.unreadablePages),
+    equationChecks,
   };
 }
 
@@ -259,10 +332,10 @@ export async function POST(request: Request) {
     ];
     if (guide instanceof File && guide.size > 0) userContent.push(inputFile(guide, await guide.arrayBuffer()));
 
-    const makeSchema = (allowedTypes: string[], maxItems = 120) => ({
+    const makeSchema = (allowedTypes: string[], maxItems = 120, includeTrace = false) => ({
       type: "object",
       additionalProperties: false,
-      required: ["score", "summary", "items", "curriculumBasis"],
+      required: ["score", "summary", "items", "curriculumBasis", ...(includeTrace ? ["coveragePages", "unreadablePages", "equationChecks"] : [])],
       properties: {
         score: { type: "integer", minimum: 0, maximum: 100 },
         summary: { type: "string" },
@@ -273,7 +346,7 @@ export async function POST(request: Request) {
           items: {
             type: "object",
             additionalProperties: false,
-            required: ["page", "sourcePage", "type", "judgment", "title", "description", "before", "after", "standard", "referenceUrl", "format"],
+            required: ["page", "sourcePage", "type", "judgment", "title", "description", "before", "after", "standard", "referenceUrl", "format", "verificationMethod", "verificationEvidence"],
             properties: {
               page: { type: "integer", minimum: 1, maximum: totalPages },
               sourcePage: { type: "string" },
@@ -286,9 +359,38 @@ export async function POST(request: Request) {
               standard: { type: "string" },
               referenceUrl: { type: "string" },
               format: { type: "string", enum: ["text", "latex"] },
+              verificationMethod: { type: "string", enum: ["ai", "deterministic"] },
+              verificationEvidence: { type: "string" },
             },
           },
         },
+        ...(includeTrace ? {
+          coveragePages: {
+            type: "array",
+            maxItems: totalPages,
+            items: { type: "integer", minimum: 1, maximum: totalPages },
+          },
+          unreadablePages: {
+            type: "array",
+            maxItems: totalPages,
+            items: { type: "integer", minimum: 1, maximum: totalPages },
+          },
+          equationChecks: {
+            type: "array",
+            maxItems: 240,
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["page", "sourcePage", "expression", "context"],
+              properties: {
+                page: { type: "integer", minimum: 1, maximum: totalPages },
+                sourcePage: { type: "string" },
+                expression: { type: "string" },
+                context: { type: "string" },
+              },
+            },
+          },
+        } : {}),
       },
     });
 
@@ -320,7 +422,7 @@ export async function POST(request: Request) {
           model: process.env.OPENAI_MODEL || "gpt-5.6-terra",
           reasoning: { effort: "high" },
           store: false,
-          ...(pass === "screening" ? { tools: [{ type: "web_search" }] } : {}),
+          ...((pass === "screening" || pass === "curriculumVerification") ? { tools: [{ type: "web_search" }] } : {}),
           input: [
             {
               role: "system",
@@ -332,7 +434,7 @@ export async function POST(request: Request) {
 - ${config.label} 전문 분석이다.
 - ${config.instruction}
 - 다른 분석 분야는 별도의 전문 분석 요청에서 처리되므로 이번 결과에 섞지 않는다.
-${pass !== "screening" ? `
+${(pass === "proofreading" || pass === "mathVerification") ? `
 <범용 수학 오류 점검 절차>
 - 특정 예시나 단원에 우선순위를 두지 말고, 선택 학년·과목에 포함된 모든 수학 영역을 동일한 엄밀성으로 확인한다.
 - 각 문항의 수학 영역, 핵심 개념, 주어진 조건, 구할 것을 먼저 식별한 뒤 원문 풀이와 독립적인 정답을 만든다.
@@ -350,6 +452,13 @@ ${pass === "mathVerification" ? `
 - 한 방법으로 맞아 보이는 경우에도 가능한 다른 풀이, 역산, 대입 또는 반례 검토 중 적절한 방법을 선택해 교차 검증한다.
 - 정답이 맞더라도 중간 과정에 성립하지 않는 식이나 명제, 논리 비약이 있으면 오류로 보고한다.
 - 발견한 모든 오류를 반환한다. 1차 결과와의 중복 여부는 서버 병합 단계에서 처리한다.
+` : ""}
+${pass === "curriculumVerification" ? `
+<2차 교육과정 검산 절차>
+- 1차 교육과정 분석과 독립적으로 모든 페이지의 핵심 개념과 요구되는 풀이 방법을 다시 분류한다.
+- 선택된 과정의 2022 개정 교육과정 성취기준과 대조하여 선수 개념, 해당 과정 내용, 이후 과정 내용을 구분한다.
+- 교재 표지나 단원명만으로 판정하지 말고 실제 문항이 요구하는 개념과 사고 수준을 근거로 판단한다.
+- 문서가 선택 과정과 명백히 다른 과정의 교재라면 대표 한 건으로 끝내지 말고 실제 범위 이탈이 확인되는 각 페이지·문항을 보고한다.
 ` : ""}
 
 <핵심 원칙>
@@ -378,7 +487,10 @@ ${pass === "mathVerification" ? `
 - 단순 삭제가 필요한 경우에도 after를 빈 문자열로 두지 말고 '[삭제]'라고 쓴다.
 - standard에는 성취기준 코드나 심사 영역과 판단 근거를 간결하게 쓴다.
 - referenceUrl에는 근거를 확인한 공식 NCIC 또는 한국과학창의재단의 HTTPS 주소를 쓴다.
+- verificationMethod는 AI 분석 항목이면 'ai'로 쓰고 verificationEvidence에는 독립 풀이, 대입, 역산, 공식 성취기준 대조 등 실제 확인 방법을 간결하게 쓴다.
 - curriculumBasis에는 반드시 정확히 '${CURRICULUM_BASIS}'을 쓴다.
+- coveragePages에는 내용을 실제로 확인한 모든 PDF 페이지 번호를 넣고, 판독하지 못한 페이지는 unreadablePages에 넣는다. 확인하지 않은 페이지를 확인했다고 쓰지 않는다.
+- 수학 분석에서는 원문에 표시된 수치 등식과 계산 결론을 equationChecks에 빠짐없이 옮긴다. expression은 계산 가능한 LaTeX 등식 자체만 쓰고, 교육과정 분석에서는 빈 배열을 쓴다.
 - 최종 출력에는 배제 대상 교육과정의 명칭이나 기준을 언급하지 않는다.
 - summary와 모든 상세 필드는 최종 결과 본문만 작성한다. 내부 사고 과정, 역할명, 도구 호출, JSON 작성 지시나 다국어 임의 문자열을 절대 포함하지 않는다.
 - 문장 안 수식은 반드시 올바른 LaTeX로 $...$ 또는 $$...$$ 안에 넣는다. 전체가 수식이면 format=latex, 문장 속 일부만 수식이면 format=text다.
@@ -392,7 +504,7 @@ ${pass === "mathVerification" ? `
               type: "json_schema",
               name: `textbook_review_${pass}`,
               strict: true,
-              schema: makeSchema(config.types),
+              schema: makeSchema(config.types, 120, true),
             },
           },
           max_output_tokens: 16000,
@@ -420,7 +532,7 @@ ${pass === "mathVerification" ? `
 
         try {
           if (hasSuspiciousOutput(outputText)) throw new Error("내부 생성 흔적이 포함되었습니다.");
-          const report = JSON.parse(outputText) as { score?: unknown; summary?: unknown; items?: unknown; curriculumBasis?: unknown };
+          const report = JSON.parse(outputText) as { score?: unknown; summary?: unknown; items?: unknown; curriculumBasis?: unknown; coveragePages?: unknown; unreadablePages?: unknown; equationChecks?: unknown };
           return sanitizeReport(report, totalPages, config.types);
         } catch (error) {
           lastValidationError = error instanceof Error ? error.message : "응답 검증에 실패했습니다.";
@@ -468,7 +580,8 @@ ${pass === "mathVerification" ? `
 - 교육과정·범위·검정 후보는 NCIC와 한국과학창의재단의 공식 2022 개정 교육과정 자료에서 근거를 확인할 때만 승인한다.
 - 같은 원인의 후보는 가장 정확한 한 항목으로 통합한다. 유형이 다르더라도 원문과 수정안이 같으면 중복으로 남기지 않는다.
 - 승인한 항목의 제목, 설명, BEFORE, AFTER, 기준을 깨끗한 한국어와 올바른 LaTeX로 다시 작성한다.
-- 후보에 없는 새로운 항목은 추가하지 않는다.
+- 후보 검증이 우선이지만, 원문을 다시 확인하는 과정에서 명백한 중대 오류나 범위 이탈을 새로 발견하면 추가할 수 있다.
+- verificationMethod는 'ai'로 쓰고 verificationEvidence에는 최종 승인에 사용한 독립 풀이, 대입, 역산 또는 공식 기준 대조 방법을 쓴다.
 
 <2022 교육과정 전용 규칙>
 - 판단 기준은 교육부 고시 제2022-33호와 수학과 교육과정 별책 8을 포함한 2022 개정 교육과정뿐이다.
@@ -528,19 +641,46 @@ ${pass === "mathVerification" ? `
       throw new Error(`최종 판정 결과 안전성 검사에 실패했습니다. ${lastValidationError}`);
     };
 
-    const proofreadingReport = await runReviewPass("proofreading");
-    const mathVerificationReport = await runReviewPass("mathVerification");
-    const screeningReport = await runReviewPass("screening");
-    const reports = [proofreadingReport, mathVerificationReport, screeningReport];
+    const [proofreadingReport, mathVerificationReport] = await Promise.all([
+      runReviewPass("proofreading"),
+      runReviewPass("mathVerification"),
+    ]);
+    const [screeningReport, curriculumVerificationReport] = await Promise.all([
+      runReviewPass("screening"),
+      runReviewPass("curriculumVerification"),
+    ]);
+    const reports = [proofreadingReport, mathVerificationReport, screeningReport, curriculumVerificationReport];
     const candidateItems = mergeAndDedupeItems(reports, totalPages);
+    const equationChecks = [proofreadingReport, mathVerificationReport].flatMap((report) => report.equationChecks);
+    const deterministic = buildDeterministicMathItems(equationChecks);
+    const protectedItems = mergeAndDedupeItems([
+      reportWithItems(confirmedAcross(proofreadingReport, mathVerificationReport)),
+      reportWithItems(confirmedAcross(screeningReport, curriculumVerificationReport)),
+      reportWithItems(deterministic.items),
+    ], totalPages);
     const finalReport = await runFinalAdjudication(candidateItems);
-    const items = mergeAndDedupeItems([finalReport], totalPages);
+    const items = mergeAndDedupeItems([finalReport, reportWithItems(protectedItems)], totalPages);
+    const fullyReviewedPages = intersectCoverage(reports, totalPages);
+    const unreadablePages = [...new Set(reports.flatMap((report) => report.unreadablePages))].sort((left, right) => left - right);
+    const score = Math.min(finalReport.score, Math.max(0, 100 - items.length * 5));
 
     return NextResponse.json({
-      score: finalReport.score,
-      summary: `${finalReport.summary}\n검토 기준: ${CURRICULUM_BASIS} 전용 · 후보별 최종 승인·기각 및 응답 안전성 검사 완료`,
+      score,
+      summary: `${finalReport.summary}\n검토 기준: ${CURRICULUM_BASIS} 전용 · 수학 2회, 교육과정 2회, 계산 엔진 및 후보별 최종 검증 완료`,
       curriculumBasis: CURRICULUM_BASIS,
       items,
+      audit: {
+        totalPages,
+        fullyReviewedPages: fullyReviewedPages.length,
+        unreadablePages,
+        deterministicChecks: deterministic.checkedCount,
+        protectedItems: protectedItems.length,
+        stages: reports.map((report, index) => ({
+          name: ["수학·교정 1차", "수학 독립 2차", "교육과정 1차", "교육과정 독립 2차"][index],
+          reviewedPages: report.coveragePages.length,
+          unreadablePages: report.unreadablePages,
+        })),
+      },
     });
   } catch (error) {
     const message = error instanceof Error && error.message
