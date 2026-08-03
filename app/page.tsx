@@ -229,6 +229,10 @@ export default function Home() {
   const [exportingReport, setExportingReport] = useState(false);
   const [reportError, setReportError] = useState("");
   const [aiConfigured, setAiConfigured] = useState<boolean | null>(null);
+  const [asyncConfigured, setAsyncConfigured] = useState(false);
+  const [blobUploadMode, setBlobUploadMode] = useState<"presigned" | "token" | null>(null);
+  const [requiresAccessCode, setRequiresAccessCode] = useState(false);
+  const [accessCode, setAccessCode] = useState("");
 
   useEffect(() => () => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -242,8 +246,13 @@ export default function Home() {
       try {
         const response = await fetch(`/api/review?check=${Date.now()}`, { cache: "no-store" });
         if (!response.ok) throw new Error("API 상태 확인 실패");
-        const payload = await readApiPayload<{ configured?: boolean }>(response);
-        if (!cancelled) setAiConfigured(Boolean(payload.configured));
+        const payload = await readApiPayload<{ configured?: boolean; asyncConfigured?: boolean; blobUploadMode?: "presigned" | "token" | null; requiresAccessCode?: boolean }>(response);
+        if (!cancelled) {
+          setAiConfigured(Boolean(payload.configured));
+          setAsyncConfigured(Boolean(payload.asyncConfigured));
+          setBlobUploadMode(payload.blobUploadMode ?? null);
+          setRequiresAccessCode(Boolean(payload.requiresAccessCode));
+        }
       } catch {
         if (cancelled) return;
         if (attempt < 2) retryTimer = setTimeout(() => void checkConfiguration(attempt + 1), 900);
@@ -340,16 +349,72 @@ export default function Home() {
     }
     setStage("analyzing"); setProgress(3); setAnalysisError("");
     try {
-      timerRef.current = setInterval(() => setProgress((current) => Math.min(90, current + (current < 55 ? 2 : 1))), 700);
-      const form = new FormData();
-      form.append("file", sourceFile);
-      form.append("subject", subject);
-      form.append("grade", grade);
-      form.append("totalPages", String(sourcePages));
-      if (guideFile) form.append("guide", guideFile);
-      const response = await fetch("/api/review", { method: "POST", body: form });
-      const payload = await readApiPayload<{ error?: string; score?: number; summary?: string; items?: ReviewItem[]; audit?: AuditSummary }>(response);
-      if (!response.ok) throw new Error(payload.error || "AI 모의 심사 요청에 실패했습니다.");
+      const accessHeaders: Record<string, string> = accessCode ? { "x-review-access-code": accessCode } : {};
+      let payload: { error?: string; score?: number; summary?: string; items?: ReviewItem[]; audit?: AuditSummary };
+
+      if (asyncConfigured) {
+        const { upload, uploadPresigned } = await import("@vercel/blob/client");
+        const uploadToBlob = blobUploadMode === "presigned" ? uploadPresigned : upload;
+        const safeName = (name: string) => name.replace(/[^0-9A-Za-z가-힣._-]+/g, "_");
+        const uploadFile = async (file: File, kind: "source" | "guide", start: number, span: number) => uploadToBlob(
+          `reviews/${crypto.randomUUID()}/${safeName(file.name)}`,
+          file,
+          {
+            access: "private",
+            handleUploadUrl: "/api/review/upload",
+            clientPayload: kind,
+            headers: accessHeaders,
+            multipart: file.size > 10 * 1024 * 1024,
+            onUploadProgress: ({ percentage }) => setProgress(Math.round(start + percentage * span / 100)),
+          },
+        );
+
+        const sourceBlob = await uploadFile(sourceFile, "source", 3, guideFile ? 9 : 14);
+        const guideBlob = guideFile ? await uploadFile(guideFile, "guide", 12, 5) : undefined;
+        setProgress(18);
+        const startResponse = await fetch("/api/review/jobs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...accessHeaders },
+          body: JSON.stringify({
+            source: { url: sourceBlob.url, name: sourceFile.name, type: sourceFile.type, size: sourceFile.size },
+            ...(guideBlob && guideFile ? { guide: { url: guideBlob.url, name: guideFile.name, type: guideFile.type, size: guideFile.size } } : {}),
+            subject,
+            grade,
+            totalPages: sourcePages,
+          }),
+        });
+        const started = await readApiPayload<{ runId?: string; error?: string }>(startResponse);
+        if (!startResponse.ok || !started.runId) throw new Error(started.error || "분석 작업을 시작하지 못했습니다.");
+
+        const startedAt = Date.now();
+        for (;;) {
+          await new Promise((resolve) => window.setTimeout(resolve, 2000));
+          const statusResponse = await fetch(`/api/review/jobs/${encodeURIComponent(started.runId)}`, {
+            cache: "no-store",
+            headers: accessHeaders,
+          });
+          const job = await readApiPayload<{ status?: string; result?: typeof payload; error?: string }>(statusResponse);
+          if (!statusResponse.ok) throw new Error(job.error || "분석 상태를 확인하지 못했습니다.");
+          if (job.status === "completed" && job.result) {
+            payload = job.result;
+            break;
+          }
+          const elapsedMinutes = (Date.now() - startedAt) / 60_000;
+          setProgress(Math.min(96, 18 + Math.round(78 * (1 - Math.exp(-elapsedMinutes / 4)))));
+        }
+      } else {
+        timerRef.current = setInterval(() => setProgress((current) => Math.min(90, current + (current < 55 ? 2 : 1))), 700);
+        const form = new FormData();
+        form.append("file", sourceFile);
+        form.append("subject", subject);
+        form.append("grade", grade);
+        form.append("totalPages", String(sourcePages));
+        if (guideFile) form.append("guide", guideFile);
+        const response = await fetch("/api/review", { method: "POST", headers: accessHeaders, body: form });
+        payload = await readApiPayload<typeof payload>(response);
+        if (!response.ok) throw new Error(payload.error || "AI 모의 심사 요청에 실패했습니다.");
+      }
+
       const result = {
         score: Math.max(0, Math.min(100, Number(payload.score) || 0)),
         summary: payload.summary || "AI 모의 심사가 완료되었습니다.",
@@ -597,9 +662,15 @@ export default function Home() {
                   ) : (
                     <div className="selected-file"><span className="file-preview">{sourceFile.type.startsWith("image/") ? <img src={previewUrl} alt="업로드 미리보기" /> : <Icon name="file" />}</span><div><strong>{sourceFile.name}</strong><small>{(sourceFile.size / 1024 / 1024).toFixed(2)}MB · {sourcePages ? `${sourcePages}페이지 · 분석 준비 완료` : "페이지 확인 중"}</small></div><button onClick={reset} aria-label="파일 삭제">×</button></div>
                   )}
-                  <button className="analyze-button" type="button" disabled={!sourceFile || !sourcePages || aiConfigured !== true} onClick={startAnalysis}><Icon name="search" /> {aiConfigured === null ? "API 연결 확인 중" : aiConfigured ? "AI 모의 심사 시작하기" : "API 키 연결 필요"} <Icon name="arrow" /></button>
+                  {requiresAccessCode && (
+                    <label className="access-code-field">
+                      <span>사용 권한 코드</span>
+                      <input type="password" autoComplete="current-password" value={accessCode} onChange={(event) => setAccessCode(event.target.value)} placeholder="관리자에게 받은 코드를 입력하세요" />
+                    </label>
+                  )}
+                  <button className="analyze-button" type="button" disabled={!sourceFile || !sourcePages || aiConfigured !== true || (requiresAccessCode && !accessCode.trim())} onClick={startAnalysis}><Icon name="search" /> {aiConfigured === null ? "API 연결 확인 중" : aiConfigured ? "AI 모의 심사 시작하기" : "API 키 연결 필요"} <Icon name="arrow" /></button>
                   {analysisError && <p className="error-banner" role="alert">{analysisError}</p>}
-                  <p className="privacy-copy"><Icon name="shield" /> {aiConfigured ? "파일은 분석을 위해 OpenAI API로 암호화 전송되며 응답 저장은 비활성화됩니다." : "배포 환경의 OPENAI_API_KEY 연결 상태를 확인해 주세요."}</p>
+                  <p className="privacy-copy"><Icon name="shield" /> {aiConfigured ? asyncConfigured ? "파일은 임시 비공개 저장 후 백그라운드에서 분석되며 완료 뒤 자동 삭제됩니다." : "파일은 분석을 위해 OpenAI API로 암호화 전송됩니다." : "배포 환경의 OPENAI_API_KEY 연결 상태를 확인해 주세요."}</p>
                 </section>
               </div>
             )}

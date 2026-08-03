@@ -14,6 +14,7 @@
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next"
   },
   "dependencies": {
+    "@vercel/blob": "^2.6.1",
     "katex": "^0.18.1",
     "next": "16.2.6",
     "pdf-lib": "1.17.1",
@@ -21,6 +22,7 @@
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "tesseract.js": "^6.0.1",
+    "workflow": "^4.8.0",
     "write-excel-file": "^4.1.1"
   },
   "devDependencies": {

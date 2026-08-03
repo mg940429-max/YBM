@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import { NextResponse } from "next/server";
 import { buildDeterministicMathItems, type EquationCheck } from "./mathVerifier";
+import { reviewAccessGranted, reviewAccessRequired } from "./access";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -82,6 +83,32 @@ function inputFile(file: File, bytes: ArrayBuffer, detail?: "high") {
     file_data: dataUrl(file, bytes),
     ...(detail ? { detail } : {}),
   };
+}
+
+async function uploadOpenAIFile(apiKey: string, file: File) {
+  const body = new FormData();
+  body.append("purpose", "user_data");
+  body.append("file", file, file.name);
+  const response = await fetch("https://api.openai.com/v1/files", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}` },
+    body,
+  });
+  const payload = await readOpenAIResponse(response, `${file.name} 업로드`);
+  if (!response.ok || typeof payload.id !== "string") {
+    const apiError = payload.error && typeof payload.error === "object"
+      ? payload.error as { message?: unknown }
+      : null;
+    throw new Error(typeof apiError?.message === "string" ? apiError.message : `${file.name}을 AI 분석 서버에 올리지 못했습니다.`);
+  }
+  return payload.id;
+}
+
+async function deleteOpenAIFiles(apiKey: string, fileIds: string[]) {
+  await Promise.allSettled(fileIds.map((fileId) => fetch(`https://api.openai.com/v1/files/${fileId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${apiKey}` },
+  })));
 }
 
 function extractOutputText(payload: Record<string, unknown>) {
@@ -279,8 +306,19 @@ function sanitizeReport(
 }
 
 export async function GET() {
+  const blobUploadMode = process.env.BLOB_STORE_ID && process.env.BLOB_WEBHOOK_PUBLIC_KEY
+    ? "presigned"
+    : process.env.BLOB_READ_WRITE_TOKEN
+      ? "token"
+      : null;
   return NextResponse.json(
-    { configured: Boolean(process.env.OPENAI_API_KEY), model: process.env.OPENAI_MODEL || "gpt-5.6-terra" },
+    {
+      configured: Boolean(process.env.OPENAI_API_KEY),
+      asyncConfigured: Boolean(process.env.OPENAI_API_KEY && blobUploadMode),
+      blobUploadMode,
+      requiresAccessCode: reviewAccessRequired(),
+      model: process.env.OPENAI_MODEL || "gpt-5.6-terra",
+    },
     { headers: { "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0" } },
   );
 }
@@ -295,20 +333,46 @@ async function readOpenAIResponse(response: Response, label: string): Promise<Re
   }
 }
 
-export async function POST(request: Request) {
+async function waitForBackgroundResponse(apiKey: string, initialResponse: Response, label: string) {
+  let response = initialResponse;
+  let payload = await readOpenAIResponse(response, label);
+  if (!response.ok) return { response, payload };
+
+  for (let poll = 0; poll < 900 && ["queued", "in_progress"].includes(String(payload.status)); poll += 1) {
+    const responseId = String(payload.id ?? "");
+    if (!responseId) throw new Error(`${label} 작업 번호를 확인할 수 없습니다.`);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    response = await fetch(`https://api.openai.com/v1/responses/${encodeURIComponent(responseId)}`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      cache: "no-store",
+    });
+    payload = await readOpenAIResponse(response, label);
+    if (!response.ok) return { response, payload };
+  }
+
+  if (payload.status !== "completed") {
+    const apiError = payload.error && typeof payload.error === "object" ? payload.error as { message?: unknown } : null;
+    throw new Error(typeof apiError?.message === "string" ? apiError.message : `${label} 작업이 완료되지 못했습니다.`);
+  }
+  return { response, payload };
+}
+
+export type ReviewAnalysisInput = {
+  source: File;
+  guide?: File;
+  subject: string;
+  grade: string;
+  totalPages: number;
+};
+
+export async function analyzeReviewFiles({ source, guide, subject, grade, totalPages }: ReviewAnalysisInput) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return NextResponse.json({ error: "AI 점검 API 키가 배포 환경에 등록되지 않았습니다." }, { status: 503 });
 
-  try {
-    const form = await request.formData();
-    const source = form.get("file");
-    const guide = form.get("guide");
-    const subject = String(form.get("subject") ?? "").trim();
-    const grade = String(form.get("grade") ?? "").trim();
-    const requestedPages = Number(form.get("totalPages"));
-    const totalPages = Number.isFinite(requestedPages) ? Math.floor(requestedPages) : 0;
+  const uploadedFileIds: string[] = [];
 
-    if (!(source instanceof File) || subject !== "수학" || !grade) {
+  try {
+    if (subject !== "수학" || !grade) {
       return NextResponse.json({ error: "수학 과목, 대상 학년과 점검 파일을 확인해 주세요." }, { status: 400 });
     }
     if (totalPages < 1 || totalPages > MAX_SOURCE_PAGES) {
@@ -317,20 +381,27 @@ export async function POST(request: Request) {
     if (!ALLOWED_SOURCE_TYPES.has(source.type) || source.size > MAX_SOURCE_BYTES) {
       return NextResponse.json({ error: "교과서 파일은 PDF·PNG·JPG·WEBP 형식, 최대 50MB까지 가능합니다." }, { status: 400 });
     }
-    if (guide instanceof File && guide.size > 0 && (!ALLOWED_GUIDE_TYPES.has(guide.type) || guide.size > MAX_GUIDE_BYTES)) {
+    if (guide && guide.size > 0 && (!ALLOWED_GUIDE_TYPES.has(guide.type) || guide.size > MAX_GUIDE_BYTES)) {
       return NextResponse.json({ error: "편집 기준은 PDF·DOCX·TXT 형식, 최대 10MB까지 가능합니다." }, { status: 400 });
     }
-    if (source.size + (guide instanceof File ? guide.size : 0) > MAX_TOTAL_INPUT_BYTES) {
+    if (source.size + (guide ? guide.size : 0) > MAX_TOTAL_INPUT_BYTES) {
       return NextResponse.json({ error: "교과서 파일과 편집 기준 파일의 합계는 최대 50MB까지 가능합니다." }, { status: 400 });
     }
 
-    const sourceBytes = await source.arrayBuffer();
-    const userContent: InputContent[] = [
-      source.type === "application/pdf"
-        ? inputFile(source, sourceBytes, "high")
-        : { type: "input_image", image_url: dataUrl(source, sourceBytes), detail: "high" },
-    ];
-    if (guide instanceof File && guide.size > 0) userContent.push(inputFile(guide, await guide.arrayBuffer()));
+    const sourceBytes = source.type === "application/pdf" ? null : await source.arrayBuffer();
+    const userContent: InputContent[] = [];
+    if (source.type === "application/pdf") {
+      const sourceFileId = await uploadOpenAIFile(apiKey, source);
+      uploadedFileIds.push(sourceFileId);
+      userContent.push({ type: "input_file", file_id: sourceFileId, detail: "high" });
+    } else {
+      userContent.push({ type: "input_image", image_url: dataUrl(source, sourceBytes as ArrayBuffer), detail: "high" });
+    }
+    if (guide && guide.size > 0) {
+      const guideFileId = await uploadOpenAIFile(apiKey, guide);
+      uploadedFileIds.push(guideFileId);
+      userContent.push({ type: "input_file", file_id: guideFileId });
+    }
 
     const makeSchema = (allowedTypes: string[], maxItems = 120, includeTrace = false) => ({
       type: "object",
@@ -415,13 +486,14 @@ export async function POST(request: Request) {
 
       let lastValidationError = "";
       for (let attempt = 0; attempt < 2; attempt += 1) {
-        const response = await fetch("https://api.openai.com/v1/responses", {
+        let response = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           model: process.env.OPENAI_MODEL || "gpt-5.6-terra",
           reasoning: { effort: "high" },
           store: false,
+          background: true,
           ...((pass === "screening" || pass === "curriculumVerification") ? { tools: [{ type: "web_search" }] } : {}),
           input: [
             {
@@ -513,7 +585,7 @@ ${pass === "curriculumVerification" ? `
 
         let payload: Record<string, unknown>;
         try {
-          payload = await readOpenAIResponse(response, config.label);
+          ({ response, payload } = await waitForBackgroundResponse(apiKey, response, config.label));
         } catch (error) {
           lastValidationError = error instanceof Error ? error.message : `${config.label} AI 응답을 확인할 수 없습니다.`;
           if (attempt === 0) continue;
@@ -558,13 +630,14 @@ ${pass === "curriculumVerification" ? `
 
       let lastValidationError = "";
       for (let attempt = 0; attempt < 2; attempt += 1) {
-        const response = await fetch("https://api.openai.com/v1/responses", {
+        let response = await fetch("https://api.openai.com/v1/responses", {
           method: "POST",
           headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
           body: JSON.stringify({
             model: process.env.OPENAI_MODEL || "gpt-5.6-terra",
             reasoning: { effort: "high" },
             store: false,
+            background: true,
             tools: [{ type: "web_search" }],
             input: [
               {
@@ -613,7 +686,7 @@ ${pass === "curriculumVerification" ? `
 
         let payload: Record<string, unknown>;
         try {
-          payload = await readOpenAIResponse(response, "최종 판정");
+          ({ response, payload } = await waitForBackgroundResponse(apiKey, response, "최종 판정"));
         } catch (error) {
           lastValidationError = error instanceof Error ? error.message : "최종 판정 AI 응답을 확인할 수 없습니다.";
           if (attempt === 0) continue;
@@ -664,7 +737,7 @@ ${pass === "curriculumVerification" ? `
     const unreadablePages = [...new Set(reports.flatMap((report) => report.unreadablePages))].sort((left, right) => left - right);
     const score = Math.min(finalReport.score, Math.max(0, 100 - items.length * 5));
 
-    return NextResponse.json({
+    const result = {
       score,
       summary: `${finalReport.summary}\n검토 기준: ${CURRICULUM_BASIS} 전용 · 수학 2회, 교육과정 2회, 계산 엔진 및 후보별 최종 검증 완료`,
       curriculumBasis: CURRICULUM_BASIS,
@@ -681,11 +754,38 @@ ${pass === "curriculumVerification" ? `
           unreadablePages: report.unreadablePages,
         })),
       },
-    });
+    };
+    await deleteOpenAIFiles(apiKey, uploadedFileIds);
+    return NextResponse.json(result);
   } catch (error) {
+    await deleteOpenAIFiles(apiKey, uploadedFileIds);
     const message = error instanceof Error && error.message
       ? error.message
       : "문서를 AI로 점검하는 중 문제가 발생했습니다. 파일 형식과 크기를 확인한 뒤 다시 시도해 주세요.";
     return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function POST(request: Request) {
+  if (!reviewAccessGranted(request)) {
+    return NextResponse.json({ error: "사용 권한 코드를 확인해 주세요." }, { status: 401 });
+  }
+  try {
+    const form = await request.formData();
+    const source = form.get("file");
+    const guide = form.get("guide");
+    const requestedPages = Number(form.get("totalPages"));
+    if (!(source instanceof File)) {
+      return NextResponse.json({ error: "점검 파일을 확인해 주세요." }, { status: 400 });
+    }
+    return analyzeReviewFiles({
+      source,
+      guide: guide instanceof File && guide.size > 0 ? guide : undefined,
+      subject: String(form.get("subject") ?? "").trim(),
+      grade: String(form.get("grade") ?? "").trim(),
+      totalPages: Number.isFinite(requestedPages) ? Math.floor(requestedPages) : 0,
+    });
+  } catch {
+    return NextResponse.json({ error: "업로드 요청을 읽지 못했습니다." }, { status: 400 });
   }
 }

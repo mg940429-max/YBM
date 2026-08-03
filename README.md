@@ -19,6 +19,10 @@ npm run dev
 - 한 번의 파일 첨부로 교정·교열과 교육과정 적합성 통합 점검
 - 내부 편집 통일 사항 PDF·DOCX·TXT 첨부
 - PDF·이미지 드래그 앤 드롭 업로드 및 실제 페이지 수 확인
+- Vercel Blob 비공개 직접 업로드와 완료 후 임시 파일 자동 삭제
+- Vercel Workflow 기반 백그라운드 분석 및 새로고침과 일반 요청 시간 제한에서 분리된 실행
+- OpenAI Files API로 PDF를 한 번만 올리고 각 전문 분석에서 같은 파일 ID 재사용
+- OpenAI Background mode 상태 조회로 장시간 모델 응답 연결 끊김 방지
 - 분석 진행률과 기준별 처리 상태 표시
 - 페이지별 부적합 가능성, 판단 근거와 공식 출처 표시
 - 수학 오류 1차 분석·독립 2차 검산과 교육과정 범위 1차·독립 2차 검산
@@ -35,16 +39,34 @@ npm run dev
 
 ## AI 사전 점검
 
-OpenAI Responses API가 PDF·이미지를 분석합니다. 기본 모델은 `gpt-5.6-terra`, 추론 수준은 `high`이며 구조화된 결과와 공식 자료 검색을 사용합니다. API 응답 저장은 비활성화합니다.
+OpenAI Responses API가 PDF·이미지를 분석합니다. 기본 모델은 `gpt-5.6-terra`, 추론 수준은 `high`이며 구조화된 결과와 공식 자료 검색을 사용합니다. 배포 환경에서는 장시간 요청을 Background mode로 실행합니다. `store: false`를 사용하지만 Background mode의 상태 조회를 위해 OpenAI가 응답 데이터를 제한된 시간 동안 임시 보관할 수 있습니다.
 
 배포 환경에는 다음 서버 환경변수를 등록해야 합니다.
 
 ```text
 OPENAI_API_KEY=...
 OPENAI_MODEL=gpt-5.6-terra
+# 최신 Private Blob 연결 시 Vercel이 자동 생성
+BLOB_STORE_ID=...
+BLOB_WEBHOOK_PUBLIC_KEY=...
+# 기존 Blob 연결에서만 사용
+BLOB_READ_WRITE_TOKEN=...
+# 선택 사항: 공유받은 사람에게 입력받을 사용 권한 코드
+REVIEW_ACCESS_CODE=...
 ```
 
-Vercel에서는 환경변수를 Production에 저장한 뒤 새 배포를 생성해야 합니다. API 키는 브라우저 코드에 포함하거나 `NEXT_PUBLIC_` 접두사를 붙이면 안 됩니다.
+### Vercel 공유 배포 설정
+
+1. Vercel 프로젝트의 `Storage`에서 Blob 저장소를 만들고 현재 프로젝트에 연결합니다.
+2. 최신 Private Blob에서는 자동 생성된 `BLOB_STORE_ID`와 `BLOB_WEBHOOK_PUBLIC_KEY`가 Production 및 Preview 환경에 포함됐는지 확인합니다. 기존 Blob 연결이라면 `BLOB_READ_WRITE_TOKEN`을 사용합니다.
+3. `Settings → Environment Variables`에 `OPENAI_API_KEY`와 `OPENAI_MODEL`을 등록합니다.
+4. 링크를 아는 모든 사람이 비용을 발생시키지 못하게 하려면 `REVIEW_ACCESS_CODE`에 회사 내부 공유 코드를 등록합니다.
+5. 환경변수 저장 후 Production을 다시 배포합니다.
+6. 앱에서 파일을 선택했을 때 하단 안내가 `임시 비공개 저장 후 백그라운드에서 분석`으로 표시되면 비동기 구성이 연결된 것입니다.
+
+API 키는 브라우저 코드에 포함하거나 `NEXT_PUBLIC_` 접두사를 붙이면 안 됩니다. 모든 사용자는 배포된 서버의 키를 이용하며 사용료와 OpenAI 프로젝트의 처리 한도를 함께 사용합니다. 사용 인원이 늘면 OpenAI 프로젝트 사용 한도와 Vercel 사용량을 함께 확인해야 합니다.
+
+로컬에 Blob 연결 환경변수가 없으면 기존 동기 분석 경로를 사용합니다. 배포와 같은 백그라운드 흐름을 로컬에서도 확인하려면 Vercel 프로젝트 환경변수를 `.env.local`로 가져온 뒤 개발 서버를 다시 시작합니다.
 
 ## 검토 범위와 주의사항
 
