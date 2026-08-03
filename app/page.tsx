@@ -33,6 +33,16 @@ const gradeGroups = [
 ];
 
 const UNIFIED_REVIEW_LABEL = "AI 모의 심사";
+
+async function readApiPayload<T>(response: Response): Promise<T> {
+  const body = await response.text();
+  try {
+    return JSON.parse(body) as T;
+  } catch {
+    const status = response.status ? ` (오류 코드 ${response.status})` : "";
+    throw new Error(`분석 서버의 응답을 확인할 수 없습니다${status}. 잠시 후 다시 시도해 주세요.`);
+  }
+}
 const UNIFIED_REVIEW_DESCRIPTION = "교정·교열, 수학적 정확성, 2022 개정 교육과정, 학년 범위와 검정 심사 기준을 한 번에 확인합니다.";
 const reviewTypes: ReviewType[] = ["math", "style", "screening", "curriculum", "scope"];
 
@@ -161,7 +171,7 @@ export default function Home() {
       try {
         const response = await fetch(`/api/review?check=${Date.now()}`, { cache: "no-store" });
         if (!response.ok) throw new Error("API 상태 확인 실패");
-        const payload = await response.json() as { configured?: boolean };
+        const payload = await readApiPayload<{ configured?: boolean }>(response);
         if (!cancelled) setAiConfigured(Boolean(payload.configured));
       } catch {
         if (cancelled) return;
@@ -267,7 +277,7 @@ export default function Home() {
       form.append("totalPages", String(sourcePages));
       if (guideFile) form.append("guide", guideFile);
       const response = await fetch("/api/review", { method: "POST", body: form });
-      const payload = await response.json() as { error?: string; score?: number; summary?: string; items?: ReviewItem[] };
+      const payload = await readApiPayload<{ error?: string; score?: number; summary?: string; items?: ReviewItem[] }>(response);
       if (!response.ok) throw new Error(payload.error || "AI 모의 심사 요청에 실패했습니다.");
       const result = {
         score: Math.max(0, Math.min(100, Number(payload.score) || 0)),

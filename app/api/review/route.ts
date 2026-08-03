@@ -212,6 +212,16 @@ export async function GET() {
   );
 }
 
+async function readOpenAIResponse(response: Response, label: string): Promise<Record<string, unknown>> {
+  const body = await response.text();
+  try {
+    return JSON.parse(body) as Record<string, unknown>;
+  } catch {
+    const status = response.status ? ` (HTTP ${response.status})` : "";
+    throw new Error(`${label} AI 응답 형식을 확인할 수 없습니다${status}. 잠시 후 다시 시도해 주세요.`);
+  }
+}
+
 export async function POST(request: Request) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return NextResponse.json({ error: "AI 점검 API 키가 배포 환경에 등록되지 않았습니다." }, { status: 503 });
@@ -389,7 +399,14 @@ ${pass === "mathVerification" ? `
         }),
         });
 
-        const payload = await response.json() as Record<string, unknown>;
+        let payload: Record<string, unknown>;
+        try {
+          payload = await readOpenAIResponse(response, config.label);
+        } catch (error) {
+          lastValidationError = error instanceof Error ? error.message : `${config.label} AI 응답을 확인할 수 없습니다.`;
+          if (attempt === 0) continue;
+          throw error;
+        }
         if (!response.ok) {
           const apiError = payload.error && typeof payload.error === "object" ? payload.error as { message?: unknown } : null;
           throw new Error(typeof apiError?.message === "string" ? apiError.message : `${config.label} 분석 요청에 실패했습니다.`);
@@ -481,7 +498,14 @@ ${pass === "mathVerification" ? `
           }),
         });
 
-        const payload = await response.json() as Record<string, unknown>;
+        let payload: Record<string, unknown>;
+        try {
+          payload = await readOpenAIResponse(response, "최종 판정");
+        } catch (error) {
+          lastValidationError = error instanceof Error ? error.message : "최종 판정 AI 응답을 확인할 수 없습니다.";
+          if (attempt === 0) continue;
+          throw error;
+        }
         if (!response.ok) {
           const apiError = payload.error && typeof payload.error === "object" ? payload.error as { message?: unknown } : null;
           throw new Error(typeof apiError?.message === "string" ? apiError.message : "최종 판정 요청에 실패했습니다.");
