@@ -7,7 +7,7 @@ import PdfSplitter from "./PdfSplitter";
 import { type ReviewItem, type ReviewType } from "./localReview";
 
 const NCIC_URL = "https://ncic.re.kr/inv/org/list.do";
-const KOSAC_URL = "https://www.kosac.re.kr/menus/270/boards/386/posts/39295";
+const KOSAC_URL = "https://www.kosac.re.kr/menus/270/boards/386/posts/38218";
 const MAX_SOURCE_MB = 50;
 const MAX_SOURCE_BYTES = MAX_SOURCE_MB * 1_000_000;
 const MAX_SOURCE_PAGES = 100;
@@ -17,7 +17,19 @@ const subjects = ["수학", "영어", "체육", "음악", "보건", "한문", "�
 const gradeGroups = [
   { label: "초등", grades: ["1학년", "2학년", "3학년", "4학년", "5학년", "6학년"] },
   { label: "중등", grades: ["1학년", "2학년", "3학년"] },
-  { label: "고등", grades: ["공통수학 1", "공통수학 2", "대수", "미적분Ⅰ", "확률과 통계"] },
+  {
+    label: "고등",
+    grades: [
+      "공통수학 1",
+      "공통수학 2",
+      "대수",
+      "미적분Ⅰ",
+      "확률과 통계",
+      "미적분Ⅱ",
+      "기하",
+      "경제 수학",
+    ],
+  },
 ];
 
 const UNIFIED_REVIEW_LABEL = "AI 모의 심사";
@@ -405,7 +417,7 @@ export default function Home() {
           <section className="flow-strip" aria-label="점검 절차">
             <div className="flow-step active"><b>01</b><span><strong>과목·범위 설정</strong><small>수학 및 점검 영역 선택</small></span></div>
             <i>→</i><div className={`flow-step ${sourceFile ? "active" : ""}`}><b>02</b><span><strong>교과서 업로드</strong><small>PDF 또는 이미지 첨부</small></span></div>
-            <i>→</i><div className={`flow-step ${stage === "analyzing" ? "active" : ""}`}><b>03</b><span><strong>AI 3단계 분석</strong><small>1차 분석·2차 검산·교육과정</small></span></div>
+            <i>→</i><div className={`flow-step ${stage === "analyzing" ? "active" : ""}`}><b>03</b><span><strong>AI 4단계 분석</strong><small>1차·2차·교육과정·최종 판정</small></span></div>
             <i>→</i><div className="flow-step"><b>04</b><span><strong>편집자 검토</strong><small>수정안 확인 및 저장</small></span></div>
           </section>
 
@@ -431,7 +443,7 @@ export default function Home() {
                 <div className="orbit" style={{ background: `conic-gradient(#0757a5 ${progress}%, #e8edf5 0)` }}><span>{progress}%</span></div>
                 <p className="section-label">AI 모의 심사 진행 중</p>
                 <h2>{subject} 교과서를 심사 기준에 맞춰 살펴보고 있어요</h2>
-                <p>{progress < 25 ? "문서에서 본문, 수식과 편집 요소를 읽는 중입니다." : progress < 50 ? "문제·풀이·정답의 수학 오류를 1차 분석하고 있습니다." : progress < 72 ? "모든 문항의 조건·개념·논리·표현·정답을 독립적으로 다시 검산하고 있습니다." : progress < 88 ? `${grade} 교육과정과 검정 심사 기준을 비교하고 있습니다.` : "세 분석 결과를 병합하고 중복 항목을 정리하고 있습니다."}</p>
+                <p>{progress < 22 ? "문서에서 본문, 수식과 편집 요소를 읽는 중입니다." : progress < 43 ? "문제·풀이·정답의 수학 오류를 1차 분석하고 있습니다." : progress < 62 ? "모든 문항을 독립적으로 다시 검산하고 있습니다." : progress < 80 ? `${grade} 내용을 2022 개정 교육과정과 비교하고 있습니다.` : "후보별 승인·기각, 중복 제거와 응답 안전성 검사를 진행하고 있습니다."}</p>
                 <div className="analysis-track"><span style={{ width: `${progress}%` }} /></div>
                 <div className="analysis-checks">
                   {reviewTypes.map((type, index) => <span className={progress > (index + 1) * (70 / reviewTypes.length) ? "done" : ""} key={type}><Icon name="check" /> {typeMeta[type].label}</span>)}
