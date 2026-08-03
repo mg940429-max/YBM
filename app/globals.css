@@ -149,6 +149,10 @@ select:focus { border-color:var(--blue); box-shadow:0 0 0 3px #e8f0ff; }
 .tag.violet { background:#f1edfb; color:#7755bb; }.tag.red { background:#fff0f0; color:#ca4f55; }.tag.amber { background:#fff5e4; color:#b6791e; }
 .issue-card>p { margin:11px 0; color:#68758a; font-size:10px; line-height:1.6; }
 .standard-link { display:block; margin:-3px 0 11px; color:#416fbf; font-size:8px; text-decoration:none; }
+.standard-link.with-math { display:flex; align-items:baseline; flex-wrap:wrap; gap:3px; }
+.standard-link.with-math>span:first-child { flex:0 0 auto; }
+.standard-link.with-math .standard-math { margin:0; color:inherit; font-size:inherit; line-height:1.65; }
+.standard-link.with-math em { font-style:normal; }
 .compare { display:grid; grid-template-columns:1fr auto 1fr; gap:12px; align-items:center; }
 .compare>i { color:#a4afbf; font-style:normal; }
 .compare>div { min-height:70px; padding:11px; border-radius:8px; background:#fff4f4; border:1px solid #f7d9da; }

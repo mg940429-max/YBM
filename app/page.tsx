@@ -2,7 +2,7 @@
 
 import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import katex from "katex";
-import type { Cell, SheetData } from "write-excel-file/universal";
+import type { Cell, Image as ExcelImage, SheetData } from "write-excel-file/universal";
 import PdfSplitter from "./PdfSplitter";
 import { type ReviewItem, type ReviewType } from "./localReview";
 
@@ -107,6 +107,67 @@ function parseMathToken(token: string) {
   if (token.startsWith("\\(") && token.endsWith("\\)")) return { source: token.slice(2, -2), displayMode: false };
   if (token.startsWith("$") && token.endsWith("$")) return { source: token.slice(1, -1), displayMode: false };
   return null;
+}
+
+function normalizeLatexSource(value: string) {
+  return value.trim()
+    .replace(/^```(?:latex|tex)?\s*/i, "").replace(/\s*```$/, "")
+    .replace(/^\$\$([\s\S]*)\$\$$/, "$1").replace(/^\\\[([\s\S]*)\\\]$/, "$1")
+    .replace(/^\\\(([\s\S]*)\\\)$/, "$1").replace(/^\$([\s\S]*)\$$/, "$1").trim();
+}
+
+function extractLatexSources(value: string, forceMath = false) {
+  const sources = value.split(mathTokenPattern)
+    .map((part) => parseMathToken(part)?.source.trim())
+    .filter((source): source is string => Boolean(source));
+  if (sources.length) return sources;
+  if (forceMath || /\\(?:frac|sqrt|sum|int|overline|begin)|[_^]/.test(value)) {
+    const source = normalizeLatexSource(value);
+    return source ? [source] : [];
+  }
+  return [];
+}
+
+function collectItemLatex(item: ReviewItem) {
+  const sources = [
+    ...extractLatexSources(item.description),
+    ...extractLatexSources(item.standard ?? ""),
+    ...extractLatexSources(item.before, item.format === "latex"),
+    ...extractLatexSources(item.after, item.format === "latex"),
+    ...extractLatexSources(item.verificationEvidence ?? ""),
+  ];
+  return [...new Set(sources)].filter(Boolean);
+}
+
+async function renderLatexPreview(latex: string) {
+  const mathMarkup = katex.renderToString(latex, { output: "mathml", throwOnError: false, strict: false, trust: false });
+  const width = Math.max(180, Math.min(760, 36 + latex.length * 11));
+  const height = 62;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><foreignObject x="0" y="0" width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml" style="width:100%;height:100%;display:flex;align-items:center;padding:8px 12px;box-sizing:border-box;background:white;color:#173f67;font-size:19px;overflow:hidden"><style>math{font-family:'Cambria Math','STIX Two Math',serif}</style>${mathMarkup}</div></foreignObject></svg>`;
+  const svgUrl = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
+  try {
+    const image = new Image();
+    image.decoding = "async";
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error("수식 미리보기를 만들지 못했습니다."));
+      image.src = svgUrl;
+    });
+    const scale = 2;
+    const canvas = document.createElement("canvas");
+    canvas.width = width * scale;
+    canvas.height = height * scale;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("수식 이미지 캔버스를 만들지 못했습니다.");
+    context.scale(scale, scale);
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, width, height);
+    context.drawImage(image, 0, 0, width, height);
+    const content = await new Promise<Blob>((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("수식 이미지를 저장하지 못했습니다.")), "image/png"));
+    return { content, width, height };
+  } finally {
+    URL.revokeObjectURL(svgUrl);
+  }
 }
 
 function RichMathText({ value, forceMath = false, className }: { value: string; forceMath?: boolean; className?: string }) {
@@ -370,9 +431,10 @@ export default function Home() {
       [{ value: "안내: 본 결과는 편집자의 최종 판단을 지원하는 AI 사전 검수 자료이며, 공식 심사 결과를 의미하지 않습니다.", columnSpan: 6, fontStyle: "italic", textColor: "#67768B", backgroundColor: "#F5F7FA", wrap: true, height: 34 }, null, null, null, null, null],
     ];
 
+    const latexByItem = reviewItems.map(collectItemLatex);
     const detailData: SheetData = [
-      ["PDF 페이지", "지면 표기", "영역", "세부 항목", "판단", "제목", "설명", "검증 방식", "검증 근거", "참조 기준", "BEFORE", "AFTER", "출처"].map((value) => headerCell(value)),
-      ...reviewItems.map((item) => [
+      ["PDF 페이지", "지면 표기", "영역", "세부 항목", "판단", "제목", "설명", "검증 방식", "검증 근거", "참조 기준", "BEFORE", "AFTER", "출처", "수식 미리보기", "LaTeX 원문"].map((value) => headerCell(value)),
+      ...reviewItems.map((item, index) => [
         { value: item.page, type: Number, align: "center", borderColor: line, borderStyle: "thin" },
         { ...valueCell(visibleSourcePage(item.sourcePage)), align: "center" },
         valueCell(typeMeta[item.type].group),
@@ -386,11 +448,36 @@ export default function Home() {
         { ...valueCell(item.before), backgroundColor: paleRed, textColor: "#A51D2D" },
         { ...valueCell(item.after), backgroundColor: paleBlue, textColor: navy },
         valueCell(item.referenceUrl ?? ""),
+        { ...valueCell(latexByItem[index].length ? "" : "수식 없음"), height: latexByItem[index].length ? 58 : undefined, align: "center" },
+        valueCell(latexByItem[index].map((source) => `$${source}$`).join("\n")),
       ] as Cell[]),
     ];
 
     try {
       const { default: writeExcelFile } = await import("write-excel-file/universal");
+      const formulaImages: ExcelImage[] = [];
+      for (let index = 0; index < latexByItem.length; index += 1) {
+        const sources = latexByItem[index];
+        if (!sources.length) continue;
+        try {
+          const preview = await renderLatexPreview(sources.slice(0, 4).join(String.raw`\qquad`));
+          const width = Math.min(430, preview.width);
+          formulaImages.push({
+            content: preview.content,
+            contentType: "image/png",
+            width,
+            height: Math.round(preview.height * width / preview.width),
+            dpi: 96,
+            anchor: { row: index + 2, column: 14 },
+            offsetX: 4,
+            offsetY: 4,
+            title: `${index + 1}번 항목 수식 미리보기`,
+            description: sources.join("; "),
+          });
+        } catch {
+          detailData[index + 1][13] = valueCell("미리보기 생성 실패");
+        }
+      }
       const blob = await writeExcelFile([
         {
           data: summaryData, sheet: "검수 요약", showGridLines: false, zoomScale: 90,
@@ -398,8 +485,8 @@ export default function Home() {
         },
         {
           data: detailData, sheet: "상세 결과", showGridLines: false, stickyRowsCount: 1,
-          zoomScale: 85, orientation: "landscape",
-          columns: [{ width: 11 }, { width: 11 }, { width: 18 }, { width: 22 }, { width: 13 }, { width: 28 }, { width: 48 }, { width: 16 }, { width: 34 }, { width: 32 }, { width: 38 }, { width: 38 }, { width: 36 }],
+          zoomScale: 85, orientation: "landscape", images: formulaImages,
+          columns: [{ width: 11 }, { width: 11 }, { width: 18 }, { width: 22 }, { width: 13 }, { width: 28 }, { width: 48 }, { width: 16 }, { width: 34 }, { width: 32 }, { width: 38 }, { width: 38 }, { width: 36 }, { width: 56 }, { width: 42 }],
         },
       ]).toBlob();
       const url = URL.createObjectURL(blob);
@@ -550,7 +637,9 @@ export default function Home() {
                 <div className="issue-title"><span className="source-page-badge">PDF {item.page}페이지{visibleSourcePage(item.sourcePage) ? ` · 지면 ${visibleSourcePage(item.sourcePage)}쪽` : ""}</span><span className={`tag ${typeMeta[item.type].color}`}>{typeMeta[item.type].label}</span><h3>{item.title}</h3><b>{item.judgment ?? "검토 필요"}</b></div>
                 <RichMathText value={item.description} />
                 {item.verificationEvidence && <p className={`verification-evidence ${item.verificationMethod === "deterministic" ? "deterministic" : ""}`}><Icon name="check" /> {item.verificationMethod === "deterministic" ? "계산 엔진 확정" : "검증 근거"} · {item.verificationEvidence}</p>}
-                {item.standard && (item.referenceUrl ? <a href={safeReferenceUrl(item.referenceUrl)} target="_blank" rel="noreferrer" className="standard-link">참조 기준 · {item.standard} ↗</a> : <span className="standard-link static">검증 기준 · {item.standard}</span>)}
+                {item.standard && (item.referenceUrl
+                  ? <a href={safeReferenceUrl(item.referenceUrl)} target="_blank" rel="noreferrer" className="standard-link with-math"><span>참조 기준 ·</span><RichMathText value={item.standard} className="standard-math" /><em>↗</em></a>
+                  : <span className="standard-link static with-math"><span>검증 기준 ·</span><RichMathText value={item.standard} className="standard-math" /></span>)}
                 <div className={`compare ${item.format === "latex" ? "latex-compare" : ""}`}><div><span>BEFORE</span><RichMathText value={item.before} forceMath={item.format === "latex"} /></div><i>→</i><div><span>AFTER</span><RichMathText value={item.after} forceMath={item.format === "latex"} /></div></div>
               </article>) : <div className="empty-filter"><Icon name="check" /><strong>이 조건에 해당하는 항목이 없습니다.</strong><button onClick={() => setActiveType("all")}>전체 결과 보기</button></div>}
             </section>
